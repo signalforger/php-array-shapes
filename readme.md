@@ -110,6 +110,35 @@ function getApiResponse(): array{
 
 ### Semantics
 
+#### Runtime Validation Control: `declare(strict_arrays=1)`
+
+Similar to `declare(strict_types=1)`, array element validation is controlled by a declare directive:
+
+```php
+<?php
+declare(strict_arrays=1);
+
+function getIds(): array<int> {
+    return [1, 2, "three"];  // TypeError: element at index 2 is string
+}
+```
+
+**Without the declare directive, `array<T>` provides syntax support only:**
+```php
+<?php
+// No declare(strict_arrays=1)
+
+function getIds(): array<int> {
+    return [1, 2, "three"];  // No error - validation is disabled
+}
+```
+
+This design provides:
+- **Zero overhead by default** - existing code is unaffected
+- **Opt-in runtime validation** - enable only where needed
+- **Gradual adoption** - add runtime checks file by file
+- **Static analysis compatibility** - tools can enforce types regardless of runtime mode
+
 #### Validation Rules
 
 **For `array<T>`:**
@@ -176,6 +205,9 @@ function getConfig(): array{host: string, port: int, ssl: bool} {
 
 ### Error Cases
 ```php
+<?php
+declare(strict_arrays=1);  // Required for runtime validation
+
 // Missing required key
 function getUser(): array{id: int, name: string} {
     return ['id' => 1];
@@ -191,13 +223,16 @@ function getUser(): array{id: int, name: string} {
 // Wrong element type in array<T>
 function getIds(): array<int> {
     return [1, 2, 'three'];
-    // Fatal error: Return value must be of type array<int>, 
-    // array containing string given
+    // Fatal error: Uncaught TypeError: getIds(): Return value must be
+    // of type array<int>, array element at index 2 is string
 }
 ```
 
 ### Real-World Example
 ```php
+<?php
+declare(strict_arrays=1);  // Enable runtime validation for this file
+
 class UserRepository {
     /**
      * Fetch all users from database
@@ -212,7 +247,7 @@ class UserRepository {
         $rows = $this->db->query("SELECT * FROM users")->fetchAll();
         return $rows;  // Validates each row has correct structure
     }
-    
+
     /**
      * Get user statistics
      */
@@ -283,32 +318,36 @@ function getUser(): array{id: int, name: string} {
 
 ### Benchmark Methodology
 
-Benchmarks run on PHP 8.4.0-dev, 100,000 iterations, averaged over 10 runs.
+Benchmarks run on PHP 8.5.0-dev, 100,000 iterations, returning a 100-element integer array.
 
 ### Results
 
-| Test Case | Baseline | With Validation | Overhead |
-|-----------|----------|-----------------|----------|
-| Return 3-key shape | 2.1ms | 2.2ms | +4.7% |
-| Return 10-key shape | 2.3ms | 2.5ms | +8.7% |
-| Return array<int> (10 elements) | 2.4ms | 2.6ms | +8.3% |
-| Return array<int> (100 elements) | 3.1ms | 3.8ms | +22.6% |
-| Return nested shape | 2.8ms | 3.2ms | +14.3% |
-| Plain array (untyped) | 2.1ms | 2.1ms | 0% |
+| Mode | JIT | Regular `array` | `array<int>` | Overhead |
+|------|-----|-----------------|--------------|----------|
+| `strict_arrays=1` | OFF | 1.55 ms | 12.17 ms | +685% |
+| `strict_arrays=1` | ON | 1.07 ms | 11.07 ms | +932% |
+| `strict_arrays=0` | OFF | 1.61 ms | 1.52 ms | ~0% |
+| `strict_arrays=0` | ON | 1.04 ms | 1.14 ms | +10% |
 
 ### Analysis
 
-- **Overhead only applies to functions using array shapes**
-- **Other functions:** 0% overhead
-- **Small shapes (3-5 keys):** <5% overhead
-- **Large shapes/arrays:** Linear with size, but still microseconds
-- **Production impact:** Negligible for typical API boundary validation
+- **Without `declare(strict_arrays=1)`:** Zero or negligible overhead
+- **With validation enabled:** Overhead scales linearly with array size
+- **JIT impact:** JIT optimizes baseline more than validation code, so relative overhead appears higher
+- **Per-call overhead:** ~0.1 microseconds per element validated
+- **Production impact:** For typical API boundaries with small-to-medium arrays, overhead is acceptable
+
+### When to Use `declare(strict_arrays=1)`
+
+- **Development/testing:** Enable validation to catch type errors early
+- **API boundaries:** Validate data entering/leaving your application
+- **Performance-critical loops:** Consider disabling for hot paths with large arrays
 
 ### Memory Impact
 
 - **Zero per-array overhead** - type descriptors stored in function metadata
-- Shape descriptors allocated once at compile time (persistent memory)
-- Typical shape descriptor: 50-200 bytes per function (one-time cost)
+- Element type info allocated once at compile time (persistent memory)
+- Typical type descriptor: 16-32 bytes per function (one-time cost)
 
 ## Implementation
 

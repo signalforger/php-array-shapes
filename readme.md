@@ -307,6 +307,171 @@ function getNestedData(): array<array{id: int, value: string}> {
 }
 ```
 
+#### Variance and Inheritance
+
+Array shape return types follow PHP's standard covariance rules for return types:
+
+**Covariance (More Specific Return Types Allowed):**
+```php
+class Repository {
+    function getUser(): array{id: int} {
+        return ['id' => 1];
+    }
+}
+
+class ExtendedRepository extends Repository {
+    // ✓ Valid: Child returns MORE keys (covariant)
+    function getUser(): array{id: int, name: string, email: string} {
+        return ['id' => 1, 'name' => 'Alice', 'email' => 'a@b.com'];
+    }
+}
+```
+
+**Contravariance (Less Specific Not Allowed):**
+```php
+class Repository {
+    function getUser(): array{id: int, name: string} {
+        return ['id' => 1, 'name' => 'Alice'];
+    }
+}
+
+class BrokenRepository extends Repository {
+    // ✗ Fatal error: Cannot return less specific type
+    function getUser(): array{id: int} {
+        return ['id' => 1];
+    }
+}
+```
+
+**For `array<T>`, standard type variance applies:**
+```php
+class NumberProvider {
+    function getNumbers(): array<int|float> {
+        return [1, 2.5, 3];
+    }
+}
+
+class IntProvider extends NumberProvider {
+    // ✓ Valid: array<int> is more specific than array<int|float>
+    function getNumbers(): array<int> {
+        return [1, 2, 3];
+    }
+}
+```
+
+#### Type Coercion Rules
+
+Array shape validation interacts with PHP's type coercion system:
+
+**With `declare(strict_types=1)` (Strict Mode):**
+```php
+declare(strict_types=1);
+declare(strict_arrays=1);
+
+function getInts(): array<int> {
+    return [1, 2, "3"];  // TypeError: element 2 must be int, string given
+}
+
+function getFloats(): array<float> {
+    return [1, 2, 3];    // TypeError: elements must be float, int given
+}
+```
+
+**Without `declare(strict_types=1)` (Weak Mode):**
+```php
+declare(strict_arrays=1);
+// No strict_types - coercion applies
+
+function getInts(): array<int> {
+    return [1, 2, "3"];  // ✓ OK: "3" coerced to 3
+}
+
+function getFloats(): array<float> {
+    return [1, 2, 3];    // ✓ OK: integers coerced to floats
+}
+
+function getStrings(): array<string> {
+    return [1, 2, 3];    // ✓ OK: integers coerced to "1", "2", "3"
+}
+```
+
+**Coercion follows standard PHP rules:**
+| From | To | Behavior |
+|------|-----|----------|
+| `int` | `float` | Allowed (widening) |
+| `float` | `int` | Allowed in weak mode (truncates) |
+| `string` | `int` | Allowed if numeric string |
+| `int`/`float` | `string` | Allowed (converts to string) |
+| `bool` | `int` | Allowed (`true`→1, `false`→0) |
+| `null` | any | TypeError (null is not coercible) |
+| `array`/`object` | scalar | TypeError |
+
+#### Edge Cases
+
+**Empty Arrays:**
+```php
+function getIds(): array<int> {
+    return [];  // ✓ Valid - empty array satisfies any array<T>
+}
+
+function getUser(): array{id: int, name: string} {
+    return [];  // ✗ TypeError - missing required keys
+}
+```
+
+**Nullable Types:**
+```php
+function maybeGetIds(): ?array<int> {
+    return null;  // ✓ Valid
+}
+
+function getIds(): array<?int> {
+    return [1, null, 3];  // ✓ Valid - elements can be null
+}
+
+function maybeGetUser(): ?array{id: int} {
+    return null;  // ✓ Valid
+}
+```
+
+**Union Types:**
+```php
+function getData(): array<int>|false {
+    return false;  // ✓ Valid
+}
+
+function getMixed(): array<int|string> {
+    return [1, "two", 3, "four"];  // ✓ Valid
+}
+```
+
+**References in Arrays:**
+```php
+function getInts(): array<int> {
+    $x = 1;
+    $arr = [&$x, 2, 3];  // Contains reference
+    return $arr;  // ✓ Valid - reference target is validated
+}
+```
+
+**Deeply Nested Types:**
+```php
+// Arbitrary nesting depth supported
+function getMatrix(): array<array<array<int>>> {
+    return [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+}
+
+// Practical limit: validation time scales with depth × size
+```
+
+**Numeric String Keys:**
+```php
+function getData(): array{0: int, 1: string} {
+    return ['0' => 1, '1' => 'hello'];  // ✓ Valid - PHP normalizes keys
+    // Internally stored as [0 => 1, 1 => 'hello']
+}
+```
+
 ## Examples
 
 ### Basic Usage
@@ -716,6 +881,32 @@ function getData(): list<int> {  // Sequential array (0, 1, 2, ...)
 
 **Rationale:** `array<T>` handles this case. Explicit `list<T>` can be added later.
 
+#### 6. Readonly/Immutable Arrays
+```php
+function getConfig(): readonly array{host: string, port: int} {
+    // Not in this RFC
+}
+```
+
+**Rationale:** Immutability is a separate concern that could be addressed in a future RFC. Considerations:
+
+- **Syntax options**: `readonly array<T>`, `immutable array<T>`, or `const array<T>`
+- **Copy-on-write**: PHP arrays already use COW; true immutability would prevent modification after return
+- **Nested immutability**: Should `readonly array<array<int>>` make nested arrays immutable too?
+- **Performance**: Immutable arrays could skip defensive copying and enable additional optimizations
+- **Use cases**: Configuration, constants, thread-safe data sharing (with future async)
+
+This RFC focuses on type validation; immutability can build on top of array shapes in a follow-up proposal.
+
+#### 7. Map Types (Typed Keys)
+```php
+function getScores(): array<string, int> {  // string keys, int values
+    // Not in this RFC
+}
+```
+
+**Rationale:** Adds complexity to validation (must check all keys are strings). Current `array<T>` validates values only. Map types with typed keys could be a future extension.
+
 ## Comparison with Other Languages
 
 ### Hack (HHVM)
@@ -761,6 +952,362 @@ def get_user() -> User:
 - Python requires class definition
 - PHP allows inline definitions
 - Python typing is optional (mypy enforces)
+
+## Security Implications
+
+Array shape types provide security benefits at trust boundaries:
+
+### Input Validation at API Boundaries
+
+```php
+declare(strict_arrays=1);
+
+class ApiController {
+    // Ensures response structure is always correct
+    public function getUser(int $id): array{id: int, name: string, role: string} {
+        $user = $this->db->fetchUser($id);
+        return $user;  // TypeError if DB returns unexpected structure
+    }
+}
+```
+
+### Prevention of Data Leakage
+
+```php
+// Without shapes: accidentally exposing sensitive data
+function getPublicUser(): array {
+    $user = $db->fetch("SELECT * FROM users WHERE id = ?", [$id]);
+    return $user;  // Might include password_hash, api_token, etc.
+}
+
+// With shapes: explicit contract prevents accidental exposure
+function getPublicUser(): array{id: int, name: string, avatar: string} {
+    $user = $db->fetch("SELECT * FROM users WHERE id = ?", [$id]);
+    return $user;  // TypeError if password_hash accidentally included
+    // (assuming closed shapes in future, or static analysis catches this)
+}
+```
+
+### Defense Against Injection via Type Confusion
+
+```php
+declare(strict_arrays=1);
+
+function processPayment(array{amount: int, currency: string} $payment): void {
+    // Cannot pass ['amount' => '100; DROP TABLE users', 'currency' => 'USD']
+    // because amount must be int, not string
+    $this->gateway->charge($payment['amount'], $payment['currency']);
+}
+```
+
+### Hardening Against Deserialization Attacks
+
+```php
+declare(strict_arrays=1);
+
+function loadConfig(): array{debug: bool, db_host: string, db_port: int} {
+    $config = json_decode(file_get_contents('config.json'), true);
+    return $config;  // TypeError if JSON was tampered with unexpected types
+}
+```
+
+## Real-World Framework Examples
+
+### Laravel: Eloquent Results
+
+```php
+declare(strict_arrays=1);
+
+class UserRepository {
+    // Clear contract for what the repository returns
+    public function findWithPosts(int $id): array{
+        user: array{id: int, name: string, email: string},
+        posts: array<array{id: int, title: string, created_at: string}>
+    } {
+        $user = User::with('posts')->findOrFail($id);
+        return [
+            'user' => $user->only(['id', 'name', 'email']),
+            'posts' => $user->posts->map->only(['id', 'title', 'created_at'])->all(),
+        ];
+    }
+}
+```
+
+### Symfony: API Responses
+
+```php
+declare(strict_arrays=1);
+
+class ProductController extends AbstractController {
+    #[Route('/api/products/{id}')]
+    public function show(int $id): JsonResponse {
+        return $this->json($this->getProductData($id));
+    }
+
+    private function getProductData(int $id): array{
+        id: int,
+        name: string,
+        price: float,
+        stock: int,
+        categories: array<string>
+    } {
+        $product = $this->repository->find($id);
+        return [
+            'id' => $product->getId(),
+            'name' => $product->getName(),
+            'price' => $product->getPrice(),
+            'stock' => $product->getStock(),
+            'categories' => $product->getCategoryNames(),
+        ];
+    }
+}
+```
+
+### Doctrine: Custom Hydration
+
+```php
+declare(strict_arrays=1);
+
+class ReportRepository {
+    /**
+     * Complex query returning specific structure
+     */
+    public function getSalesReport(DateRange $range): array<array{
+        date: string,
+        total_sales: float,
+        order_count: int,
+        top_product: string
+    }> {
+        return $this->em->createQuery('...')
+            ->setParameters(['start' => $range->start, 'end' => $range->end])
+            ->getResult();
+    }
+}
+```
+
+### API Platform: Resource Output
+
+```php
+declare(strict_arrays=1);
+
+class OrderNormalizer implements NormalizerInterface {
+    public function normalize($order): array{
+        id: int,
+        status: string,
+        items: array<array{product_id: int, quantity: int, price: float}>,
+        total: float,
+        created_at: string
+    } {
+        return [
+            'id' => $order->getId(),
+            'status' => $order->getStatus(),
+            'items' => array_map(fn($item) => [
+                'product_id' => $item->getProductId(),
+                'quantity' => $item->getQuantity(),
+                'price' => $item->getPrice(),
+            ], $order->getItems()),
+            'total' => $order->getTotal(),
+            'created_at' => $order->getCreatedAt()->format('c'),
+        ];
+    }
+}
+```
+
+### Configuration Arrays
+
+```php
+declare(strict_arrays=1);
+
+class DatabaseConfig {
+    public static function load(): array{
+        driver: string,
+        host: string,
+        port: int,
+        database: string,
+        username: string,
+        password: string,
+        options: array<string>
+    } {
+        return [
+            'driver' => $_ENV['DB_DRIVER'] ?? 'mysql',
+            'host' => $_ENV['DB_HOST'] ?? 'localhost',
+            'port' => (int) ($_ENV['DB_PORT'] ?? 3306),
+            'database' => $_ENV['DB_NAME'],
+            'username' => $_ENV['DB_USER'],
+            'password' => $_ENV['DB_PASS'],
+            'options' => explode(',', $_ENV['DB_OPTIONS'] ?? ''),
+        ];
+    }
+}
+```
+
+## Migration Guide
+
+### Step 1: Identify Candidates
+
+Start with functions that return structured data:
+- Repository methods returning database results
+- API endpoints returning JSON structures
+- Configuration loaders
+- Data transformation functions
+
+```bash
+# Find functions returning arrays (candidates for typing)
+grep -r "function.*(): array" src/
+```
+
+### Step 2: Add Types Incrementally
+
+**Phase 1: Add types without validation (syntax only)**
+```php
+// No declare - types documented but not enforced
+function getUser(): array{id: int, name: string} {
+    return $this->db->fetch(...);
+}
+```
+
+**Phase 2: Enable validation in test environment**
+```php
+// tests/bootstrap.php
+declare(strict_arrays=1);
+```
+
+**Phase 3: Enable validation in specific files**
+```php
+<?php
+declare(strict_arrays=1);  // Enable for this file
+
+function getUser(): array{id: int, name: string} {
+    return $this->db->fetch(...);  // Now validated
+}
+```
+
+### Step 3: Handle Validation Failures
+
+When validation catches type mismatches:
+
+```php
+// Before: Wrong type from database
+function getUser(): array{id: int, age: int} {
+    return $this->db->fetch(...);  // age might be string "25"
+}
+
+// After: Cast at boundary
+function getUser(): array{id: int, age: int} {
+    $row = $this->db->fetch(...);
+    $row['age'] = (int) $row['age'];  // Explicit cast
+    return $row;
+}
+```
+
+### Step 4: Migrate from Docblocks
+
+```php
+// Before: PHPStan/Psalm docblock
+/**
+ * @return array{id: int, name: string}
+ */
+function getUser(): array {
+    return ['id' => 1, 'name' => 'Alice'];
+}
+
+// After: Native type (keep docblock for BC with older tools)
+/**
+ * @return array{id: int, name: string}
+ */
+function getUser(): array{id: int, name: string} {
+    return ['id' => 1, 'name' => 'Alice'];
+}
+```
+
+### Tooling Support
+
+```bash
+# Future: Automated migration tool (proposed)
+php-cs-fixer fix --rules=array_shape_from_docblock src/
+
+# Rector rule (proposed)
+vendor/bin/rector process src/ --rules=DocblockToArrayShape
+```
+
+## Common Objections / FAQ
+
+### "Just use classes/DTOs instead of arrays"
+
+**Response:** Classes are often better for complex domain objects, but arrays remain the pragmatic choice for:
+
+- **Database results**: ORMs return arrays; wrapping every query in DTOs adds boilerplate
+- **API responses**: JSON naturally maps to arrays; DTOs require serialization setup
+- **Configuration**: Arrays are readable and don't need class files
+- **Interoperability**: Many libraries expect/return arrays
+- **Performance**: Arrays have less overhead than object instantiation
+
+Array shapes complement DTOs - use DTOs for complex behavior, shapes for simple data structures.
+
+### "This adds complexity to the language"
+
+**Response:** PHP already has:
+- Typed properties (`public int $id`)
+- Typed parameters (`function foo(int $x)`)
+- Typed returns (`function foo(): int`)
+- Union types (`int|string`)
+- Intersection types (`Foo&Bar`)
+
+Array shapes are the logical completion of PHP's type system. The syntax mirrors existing static analysis tools, so it's already familiar to many developers.
+
+### "Performance overhead is unacceptable"
+
+**Response:** With optimizations implemented:
+- **Escape analysis**: Constant literals have ~0% overhead
+- **Type tagging cache**: Repeated validations have ~1% overhead
+- **Opt-in validation**: `declare(strict_arrays=1)` means zero overhead by default
+
+For comparison, `declare(strict_types=1)` also has overhead but is widely used.
+
+### "Static analysis already solves this"
+
+**Response:** Static analysis and native types are complementary:
+
+| Static Analysis | Native Types |
+|-----------------|--------------|
+| Catches bugs at analysis time | Catches bugs at runtime |
+| Can be bypassed/ignored | Cannot be bypassed |
+| Requires tool setup | Works out of the box |
+| Can't validate external data | Validates all data |
+| Comments can drift | Types are the contract |
+
+Both together provide defense in depth.
+
+### "What about backwards compatibility?"
+
+**Response:**
+- Plain `array` return types continue to work unchanged
+- New syntax is opt-in and additive
+- No `declare(strict_arrays=1)` = no validation overhead
+- Static analyzers can read native types (better than parsing docblocks)
+
+### "Why return types only? What about parameters?"
+
+**Response:** This RFC intentionally limits scope to return types:
+
+- **Simpler implementation**: Single validation point
+- **Cleaner semantics**: No variance complications with parameters
+- **Easier adoption**: Can be added incrementally
+- **Future extensibility**: Parameter types can be a follow-up RFC
+
+### "Won't this make error messages confusing?"
+
+**Response:** Native types provide clear, actionable errors:
+
+```
+TypeError: getUser(): Return value must be of type array{id: int, name: string},
+key 'name' must be of type string, int given
+
+// vs. current state:
+Warning: Undefined array key "name" in /app/View.php on line 847
+```
+
+The error tells you exactly what's wrong and where.
 
 ## Open Questions
 

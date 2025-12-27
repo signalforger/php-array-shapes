@@ -1,0 +1,447 @@
+diff --git a/Zend/zend_ast.h b/Zend/zend_ast.h
+index fb48b187..12a66bf6 100644
+--- a/Zend/zend_ast.h
++++ b/Zend/zend_ast.h
+@@ -70,6 +70,7 @@ enum _zend_ast_kind {
+ 	ZEND_AST_ATTRIBUTE_GROUP,
+ 	ZEND_AST_MATCH_ARM_LIST,
+ 	ZEND_AST_MODIFIER_LIST,
++	ZEND_AST_SHAPE_ELEMENT_LIST,
+ 
+ 	/* 0 child nodes */
+ 	ZEND_AST_MAGIC_CONST = 0 << ZEND_AST_NUM_CHILDREN_SHIFT,
+@@ -80,6 +81,8 @@ enum _zend_ast_kind {
+ 	/* 1 child node */
+ 	ZEND_AST_VAR = 1 << ZEND_AST_NUM_CHILDREN_SHIFT,
+ 	ZEND_AST_CONST,
++	ZEND_AST_TYPE_ARRAY_OF,
++	ZEND_AST_TYPE_ARRAY_SHAPE,
+ 	ZEND_AST_UNPACK,
+ 	ZEND_AST_UNARY_PLUS,
+ 	ZEND_AST_UNARY_MINUS,
+@@ -115,6 +118,7 @@ enum _zend_ast_kind {
+ 	/* 2 child nodes */
+ 	ZEND_AST_DIM = 2 << ZEND_AST_NUM_CHILDREN_SHIFT,
+ 	ZEND_AST_PROP,
++	ZEND_AST_SHAPE_ELEMENT,
+ 	ZEND_AST_NULLSAFE_PROP,
+ 	ZEND_AST_STATIC_PROP,
+ 	ZEND_AST_CALL,
+diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
+index 8be1ee14..71a3618e 100644
+--- a/Zend/zend_compile.c
++++ b/Zend/zend_compile.c
+@@ -2669,8 +2669,10 @@ static void zend_emit_return_type_check(
+ 		}
+ 
+ 		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
+-			/* we don't need run-time check */
+-			return;
++			/* we don't need run-time check, unless we have array element type info to validate */
++			if (!ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
++				return;
++			}
+ 		}
+ 
+ 		opline = zend_emit_op(NULL, ZEND_VERIFY_RETURN_TYPE, expr, NULL);
+@@ -7028,6 +7030,29 @@ static void zend_compile_declare(zend_ast *ast) /* {{{ */
+ 				CG(active_op_array)->fn_flags |= ZEND_ACC_STRICT_TYPES;
+ 			}
+ 
++		} else if (zend_string_equals_literal_ci(name, "strict_arrays")) {
++			zval value_zv;
++
++			if (FAILURE == zend_is_first_statement(ast, /* allow_nop */ true)) {
++				zend_error_noreturn(E_COMPILE_ERROR, "strict_arrays declaration must be "
++					"the very first statement in the script");
++			}
++
++			if (ast->child[1] != NULL) {
++				zend_error_noreturn(E_COMPILE_ERROR, "strict_arrays declaration must not "
++					"use block mode");
++			}
++
++			zend_const_expr_to_zval(&value_zv, value_ast_ptr, /* allow_dynamic */ false);
++
++			if (Z_TYPE(value_zv) != IS_LONG || (Z_LVAL(value_zv) != 0 && Z_LVAL(value_zv) != 1)) {
++				zend_error_noreturn(E_COMPILE_ERROR, "strict_arrays declaration must have 0 or 1 as its value");
++			}
++
++			if (Z_LVAL(value_zv) == 1) {
++				CG(active_op_array)->fn_flags |= ZEND_ACC_STRICT_ARRAYS;
++			}
++
+ 		} else {
+ 			zend_error(E_COMPILE_WARNING, "Unsupported declare '%s'", ZSTR_VAL(name));
+ 		}
+@@ -7086,6 +7111,35 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+ 		}
+ 
+ 		return (zend_type) ZEND_TYPE_INIT_CODE(ast->attr, 0, 0);
++	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_OF) {
++		/* array<T> syntax - store element type info */
++		zend_ast *element_type_ast = ast->child[0];
++		zend_typed_array_element *elem_type = zend_arena_alloc(&CG(arena), sizeof(zend_typed_array_element));
++		elem_type->class_name = NULL;
++		elem_type->type_code = 0;
++
++		if (element_type_ast->kind == ZEND_AST_TYPE) {
++			/* Built-in type like int, string, float, bool */
++			elem_type->type_code = element_type_ast->attr;
++		} else {
++			/* Class name or built-in type name */
++			zend_string *class_name = zend_ast_get_str(element_type_ast);
++			/* Check for built-in type names first */
++			uint8_t type_code = zend_lookup_builtin_type_by_name(class_name);
++			if (type_code != 0) {
++				elem_type->type_code = type_code;
++			} else {
++				elem_type->type_code = IS_OBJECT;
++				elem_type->class_name = zend_string_copy(class_name);
++			}
++		}
++
++		zend_type type;
++		type.type_mask = (1u << IS_ARRAY);
++		type.ptr = elem_type;
++		return type;
++	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_SHAPE) {
++		return (zend_type) ZEND_TYPE_INIT_CODE(IS_ARRAY, 0, 0);
+ 	} else {
+ 		zend_string *type_name = zend_ast_get_str(ast);
+ 		uint8_t type_code = zend_lookup_builtin_type_by_name(type_name);
+@@ -8460,6 +8514,7 @@ static zend_op_array *zend_compile_func_decl_ex(
+ 	}
+ 
+ 	op_array->fn_flags |= (orig_op_array->fn_flags & ZEND_ACC_STRICT_TYPES);
++	op_array->fn_flags |= (orig_op_array->fn_flags & ZEND_ACC_STRICT_ARRAYS);
+ 	op_array->fn_flags |= decl->flags;
+ 	op_array->line_start = decl->start_lineno;
+ 	op_array->line_end = decl->end_lineno;
+diff --git a/Zend/zend_compile.h b/Zend/zend_compile.h
+index c07fa9bf..3d0780cf 100644
+--- a/Zend/zend_compile.h
++++ b/Zend/zend_compile.h
+@@ -107,6 +107,15 @@ typedef struct _zend_declarables {
+ 	zend_long ticks;
+ } zend_declarables;
+ 
++/* Array element type info for array<T> syntax */
++typedef struct _zend_typed_array_element {
++	uint8_t type_code;       /* IS_LONG, IS_STRING, etc. or IS_OBJECT for class */
++	zend_string *class_name; /* Class name for object types, NULL otherwise */
++} zend_typed_array_element;
++
++#define ZEND_TYPED_ARRAY_ELEMENT(t) \
++	((zend_typed_array_element *) (t).ptr)
++
+ /* Compilation context that is different for each file, but shared between op arrays. */
+ typedef struct _zend_file_context {
+ 	zend_declarables declarables;
+@@ -407,6 +416,9 @@ typedef struct _zend_oparray_context {
+ /*                                                        |     |     |     */
+ /* op_array uses strict mode types                        |     |     |     */
+ #define ZEND_ACC_STRICT_TYPES            (1U << 31) /*    |  X  |     |     */
++/*                                                        |     |     |     */
++/* op_array uses strict array element types               |     |     |     */
++#define ZEND_ACC_STRICT_ARRAYS           (1U << 30) /*    |  X  |     |     */
+ 
+ #define ZEND_ACC_PPP_MASK  (ZEND_ACC_PUBLIC | ZEND_ACC_PROTECTED | ZEND_ACC_PRIVATE)
+ #define ZEND_ACC_PPP_SET_MASK  (ZEND_ACC_PUBLIC_SET | ZEND_ACC_PROTECTED_SET | ZEND_ACC_PRIVATE_SET)
+@@ -719,6 +731,15 @@ ZEND_STATIC_ASSERT(ZEND_MM_ALIGNED_SIZE(sizeof(zval)) == sizeof(zval),
+ #define EX_USES_STRICT_TYPES() \
+ 	ZEND_CALL_USES_STRICT_TYPES(execute_data)
+ 
++#define ZEND_CALL_USES_STRICT_ARRAYS(call) \
++	(((call)->func->common.fn_flags & ZEND_ACC_STRICT_ARRAYS) != 0)
++
++#define EX_USES_STRICT_ARRAYS() \
++	ZEND_CALL_USES_STRICT_ARRAYS(execute_data)
++
++#define ZEND_RET_USES_STRICT_ARRAYS() \
++	ZEND_CALL_USES_STRICT_ARRAYS(EG(current_execute_data))
++
+ #define ZEND_ARG_USES_STRICT_TYPES() \
+ 	(EG(current_execute_data)->prev_execute_data && \
+ 	 EG(current_execute_data)->prev_execute_data->func && \
+diff --git a/Zend/zend_execute.c b/Zend/zend_execute.c
+index 5665cc0c..d8f1c07b 100644
+--- a/Zend/zend_execute.c
++++ b/Zend/zend_execute.c
+@@ -1434,6 +1434,210 @@ ZEND_API ZEND_COLD void zend_verify_return_error(const zend_function *zf, const
+ 	zend_string_release(need_msg);
+ }
+ 
++/* Array element type validation for array<T> with strict_arrays */
++ZEND_API ZEND_COLD void zend_verify_array_element_type_error(
++	const zend_function *zf, zend_long index, const zval *element,
++	const char *expected_type, const char *actual_type)
++{
++	const char *fname = ZSTR_VAL(zf->common.function_name);
++	const char *fsep = zf->common.scope ? "::" : "";
++	const char *fclass = zf->common.scope ? ZSTR_VAL(zf->common.scope->name) : "";
++
++	zend_type_error("%s%s%s(): Return value must be of type array<%s>, "
++		"array element at index " ZEND_LONG_FMT " is %s",
++		fclass, fsep, fname, expected_type, index, actual_type);
++}
++
++/*
++ * Optimized type-specialized validation functions
++ * Key optimizations:
++ * 1. Type check selected once outside loop (no switch per element)
++ * 2. Minimal work in hot path (no index tracking, no type name assignment)
++ * 3. ZEND_HASH_FOREACH_VAL instead of KEY_VAL when keys not needed
++ * 4. Class entry cached for object types
++ */
++static zend_always_inline bool zend_verify_array_elements_long(HashTable *ht)
++{
++	zval *val;
++	ZEND_HASH_FOREACH_VAL(ht, val) {
++		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_LONG)) {
++			return false;
++		}
++	} ZEND_HASH_FOREACH_END();
++	return true;
++}
++
++static zend_always_inline bool zend_verify_array_elements_double(HashTable *ht)
++{
++	zval *val;
++	ZEND_HASH_FOREACH_VAL(ht, val) {
++		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_DOUBLE && Z_TYPE_P(val) != IS_LONG)) {
++			return false;
++		}
++	} ZEND_HASH_FOREACH_END();
++	return true;
++}
++
++static zend_always_inline bool zend_verify_array_elements_string(HashTable *ht)
++{
++	zval *val;
++	ZEND_HASH_FOREACH_VAL(ht, val) {
++		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_STRING)) {
++			return false;
++		}
++	} ZEND_HASH_FOREACH_END();
++	return true;
++}
++
++static zend_always_inline bool zend_verify_array_elements_bool(HashTable *ht)
++{
++	zval *val;
++	ZEND_HASH_FOREACH_VAL(ht, val) {
++		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_TRUE && Z_TYPE_P(val) != IS_FALSE)) {
++			return false;
++		}
++	} ZEND_HASH_FOREACH_END();
++	return true;
++}
++
++static zend_always_inline bool zend_verify_array_elements_object(HashTable *ht, zend_class_entry *ce)
++{
++	zval *val;
++	ZEND_HASH_FOREACH_VAL(ht, val) {
++		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_OBJECT)) {
++			return false;
++		}
++		if (ce && UNEXPECTED(!instanceof_function(Z_OBJCE_P(val), ce))) {
++			return false;
++		}
++	} ZEND_HASH_FOREACH_END();
++	return true;
++}
++
++/* Cold path: find the failing element for error reporting */
++static ZEND_COLD zend_long zend_find_invalid_array_element(
++	HashTable *ht, uint8_t type_code, zend_class_entry *cached_ce, zval **out_val)
++{
++	zval *val;
++	zend_ulong idx;
++	zend_string *key;
++	zend_long numeric_idx = 0;
++
++	ZEND_HASH_FOREACH_KEY_VAL(ht, idx, key, val) {
++		zend_long current_idx = key ? numeric_idx : (zend_long)idx;
++		bool type_matches = false;
++
++		ZVAL_DEREF(val);
++
++		switch (type_code) {
++			case IS_LONG:
++				type_matches = (Z_TYPE_P(val) == IS_LONG);
++				break;
++			case IS_DOUBLE:
++				type_matches = (Z_TYPE_P(val) == IS_DOUBLE || Z_TYPE_P(val) == IS_LONG);
++				break;
++			case IS_STRING:
++				type_matches = (Z_TYPE_P(val) == IS_STRING);
++				break;
++			case _IS_BOOL:
++				type_matches = (Z_TYPE_P(val) == IS_TRUE || Z_TYPE_P(val) == IS_FALSE);
++				break;
++			case IS_OBJECT:
++				if (Z_TYPE_P(val) == IS_OBJECT) {
++					type_matches = !cached_ce || instanceof_function(Z_OBJCE_P(val), cached_ce);
++				}
++				break;
++			default:
++				type_matches = true;
++				break;
++		}
++
++		if (!type_matches) {
++			*out_val = val;
++			return current_idx;
++		}
++		numeric_idx++;
++	} ZEND_HASH_FOREACH_END();
++
++	*out_val = NULL;
++	return -1;
++}
++
++ZEND_API bool zend_verify_array_element_types(
++	const zend_function *zf, zval *arr, const zend_typed_array_element *elem_type)
++{
++	HashTable *ht = Z_ARRVAL_P(arr);
++	bool valid;
++	zend_class_entry *cached_ce = NULL;
++	const char *expected_type_name;
++
++	/* Fast path: empty arrays always valid */
++	if (zend_hash_num_elements(ht) == 0) {
++		return true;
++	}
++
++	/* Select validation strategy based on type (done once, not per element) */
++	switch (elem_type->type_code) {
++		case IS_LONG:
++			valid = zend_verify_array_elements_long(ht);
++			expected_type_name = "int";
++			break;
++		case IS_DOUBLE:
++			valid = zend_verify_array_elements_double(ht);
++			expected_type_name = "float";
++			break;
++		case IS_STRING:
++			valid = zend_verify_array_elements_string(ht);
++			expected_type_name = "string";
++			break;
++		case _IS_BOOL:
++			valid = zend_verify_array_elements_bool(ht);
++			expected_type_name = "bool";
++			break;
++		case IS_OBJECT:
++			/* Cache class entry - lookup done once, not per element */
++			if (elem_type->class_name) {
++				cached_ce = zend_lookup_class(elem_type->class_name);
++				expected_type_name = ZSTR_VAL(elem_type->class_name);
++			} else {
++				expected_type_name = "object";
++			}
++			valid = zend_verify_array_elements_object(ht, cached_ce);
++			break;
++		default:
++			return true; /* Unknown type, don't validate */
++	}
++
++	/* Fast path: all elements valid */
++	if (EXPECTED(valid)) {
++		return true;
++	}
++
++	/* Slow path (cold): find and report the failing element */
++	zval *failing_val;
++	zend_long failing_idx = zend_find_invalid_array_element(ht, elem_type->type_code, cached_ce, &failing_val);
++	if (failing_idx >= 0 && failing_val) {
++		const char *actual_type_name = zend_zval_type_name(failing_val);
++		zend_verify_array_element_type_error(zf, failing_idx, failing_val, expected_type_name, actual_type_name);
++	}
++	return false;
++}
++
+ ZEND_API ZEND_COLD void zend_verify_never_error(const zend_function *zf)
+ {
+ 	zend_string *func_name = get_function_or_method_name(zf);
+diff --git a/Zend/zend_execute.h b/Zend/zend_execute.h
+index c08adf2a..73f403ad 100644
+--- a/Zend/zend_execute.h
++++ b/Zend/zend_execute.h
+@@ -105,6 +105,11 @@ ZEND_API ZEND_COLD void zend_verify_arg_error(
+ 		const zend_function *zf, const zend_arg_info *arg_info, uint32_t arg_num, const zval *value);
+ ZEND_API ZEND_COLD void zend_verify_return_error(
+ 		const zend_function *zf, const zval *value);
++ZEND_API ZEND_COLD void zend_verify_array_element_type_error(
++		const zend_function *zf, zend_long index, const zval *element,
++		const char *expected_type, const char *actual_type);
++ZEND_API bool zend_verify_array_element_types(
++		const zend_function *zf, zval *arr, const zend_typed_array_element *elem_type);
+ ZEND_API ZEND_COLD void zend_verify_never_error(
+ 		const zend_function *zf);
+ ZEND_API bool zend_verify_ref_array_assignable(zend_reference *ref);
+diff --git a/Zend/zend_language_parser.y b/Zend/zend_language_parser.y
+index e4d61006..f9a17d5b 100644
+--- a/Zend/zend_language_parser.y
++++ b/Zend/zend_language_parser.y
+@@ -874,6 +874,8 @@ type_without_static:
+ 		T_ARRAY		{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_ARRAY); }
+ 	|	T_CALLABLE	{ $$ = zend_ast_create_ex(ZEND_AST_TYPE, IS_CALLABLE); }
+ 	|	name		{ $$ = $1; }
++	|	T_ARRAY '<' type_expr '>'
++			{ $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_OF, $3); }
+ ;
+ 
+ union_type_without_static_element:
+diff --git a/Zend/zend_types.h b/Zend/zend_types.h
+index a3d3e4da..a2f193af 100644
+--- a/Zend/zend_types.h
++++ b/Zend/zend_types.h
+@@ -191,6 +191,9 @@ typedef struct {
+ #define ZEND_TYPE_USES_ARENA(t) \
+ 	((((t).type_mask) & _ZEND_TYPE_ARENA_BIT) != 0)
+ 
++#define ZEND_TYPE_HAS_ARRAY_ELEMENT(t) \
++	((((t).type_mask) & (1u << IS_ARRAY)) != 0 && (t).ptr != NULL && !ZEND_TYPE_IS_COMPLEX(t))
++
+ #define ZEND_TYPE_IS_ONLY_MASK(t) \
+ 	(ZEND_TYPE_IS_SET(t) && (t).ptr == NULL)
+ 
+diff --git a/Zend/zend_vm_def.h b/Zend/zend_vm_def.h
+index 90247b3c..fee38710 100644
+--- a/Zend/zend_vm_def.h
++++ b/Zend/zend_vm_def.h
+@@ -4453,6 +4453,15 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
+ 		}
+ 
+ 		if (EXPECTED(ZEND_TYPE_CONTAINS_CODE(ret_info->type, Z_TYPE_P(retval_ptr)))) {
++			/* Check array element types if strict_arrays is enabled and we have array<T> type info */
++			if (EX_USES_STRICT_ARRAYS() && Z_TYPE_P(retval_ptr) == IS_ARRAY && ZEND_TYPE_HAS_ARRAY_ELEMENT(ret_info->type)) {
++				SAVE_OPLINE();
++				zend_typed_array_element *elem_type = ZEND_TYPED_ARRAY_ELEMENT(ret_info->type);
++				if (!zend_verify_array_element_types(EX(func), retval_ptr, elem_type)) {
++					FREE_OP1();
++					HANDLE_EXCEPTION();
++				}
++			}
+ 			ZEND_VM_NEXT_OPCODE();
+ 		}
+ 
+diff --git a/Zend/zend_vm_execute.h b/Zend/zend_vm_execute.h
+index 810c2c7e..9d83db73 100644
+Binary files a/Zend/zend_vm_execute.h and b/Zend/zend_vm_execute.h differ

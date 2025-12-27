@@ -4,6 +4,9 @@ php-src/
 # PHP installation directory
 php-install/
 
+# PHP executable directory
+php/
+
 
 # Build artifacts
 *.o

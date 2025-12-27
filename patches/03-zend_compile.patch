@@ -1,0 +1,13 @@
+--- a/Zend/zend_compile.c
++++ b/Zend/zend_compile.c
+@@ -7086,6 +7086,10 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+ 		}
+
+ 		return (zend_type) ZEND_TYPE_INIT_CODE(ast->attr, 0, 0);
++	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_OF) {
++		return (zend_type) ZEND_TYPE_INIT_CODE(IS_ARRAY, 0, 0);
++	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_SHAPE) {
++		return (zend_type) ZEND_TYPE_INIT_CODE(IS_ARRAY, 0, 0);
+ 	} else {
+ 		zend_string *type_name = zend_ast_get_str(ast);
+ 		uint8_t type_code = zend_lookup_builtin_type_by_name(type_name);

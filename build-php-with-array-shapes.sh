@@ -85,32 +85,6 @@ apply_patches() {
     # Note: array{...} shape syntax deferred due to grammar conflict with function bodies
     # For now, only array<T> syntax is implemented
 
-    # Add compilation support for new AST types in zend_compile.c
-    log_info "  Adding compile support for array shapes..."
-    if ! grep -q "ZEND_AST_TYPE_ARRAY_OF" Zend/zend_compile.c; then
-        # We need to add handling for our new AST types in zend_compile_single_typename()
-        # The function checks ast->kind and returns appropriate zend_type
-        # We add our cases after the ZEND_AST_TYPE check
-        sed -i '/return (zend_type) ZEND_TYPE_INIT_CODE(ast->attr, 0, 0);$/a\
-	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_OF || ast->kind == ZEND_AST_TYPE_ARRAY_SHAPE) {\
-		/* array<T> or array{...} - compile as array type */\
-		return (zend_type) ZEND_TYPE_INIT_CODE(IS_ARRAY, 0, 0);' Zend/zend_compile.c
-
-        # The sed above adds "} else if" but we need to remove the original "} else {"
-        # to avoid syntax error. Find and remove the duplicate.
-        # Actually, the structure is: if { ... return } else { ... }
-        # After our insert it becomes: if { ... return } else if { return } } else { ... }
-        # We need to remove the extra "} else {" that follows our insert
-        sed -i '/ZEND_TYPE_INIT_CODE(IS_ARRAY, 0, 0);$/{
-n
-/^[[:space:]]*} else {$/d
-}' Zend/zend_compile.c
-
-        log_success "  Compile support added"
-    else
-        log_warn "  Compile support already added"
-    fi
-
     log_success "All patches applied"
 }
 

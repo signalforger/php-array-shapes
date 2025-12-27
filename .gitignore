@@ -1,0 +1,26 @@
+# PHP source (cloned by build script)
+php-src/
+
+# PHP installation directory
+php-install/
+
+# Generated benchmarks
+benchmarks/
+
+# Build artifacts
+*.o
+*.lo
+*.la
+*.so
+*.dylib
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

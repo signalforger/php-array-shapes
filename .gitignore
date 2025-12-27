@@ -4,8 +4,6 @@ php-src/
 # PHP installation directory
 php-install/
 
-# Generated benchmarks
-benchmarks/
 
 # Build artifacts
 *.o

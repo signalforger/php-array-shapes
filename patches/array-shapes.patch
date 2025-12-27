@@ -28,10 +28,42 @@ index fb48b187..12a66bf6 100644
  	ZEND_AST_STATIC_PROP,
  	ZEND_AST_CALL,
 diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
-index 8be1ee14..71a3618e 100644
+index 8be1ee14..1e593520 100644
 --- a/Zend/zend_compile.c
 +++ b/Zend/zend_compile.c
-@@ -2669,8 +2669,10 @@ static void zend_emit_return_type_check(
+@@ -2617,6 +2617,31 @@ static void zend_compile_memoized_expr(znode *result, zend_ast *expr) /* {{{ */
+ }
+ /* }}} */
+ 
++/* Check if a constant array's elements all match the expected type (compile-time) */
++static bool zend_const_array_elements_match_type(zval *arr, uint8_t expected_type_code)
++{
++	zval *val;
++	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(arr), val) {
++		switch (expected_type_code) {
++			case IS_LONG:
++				if (Z_TYPE_P(val) != IS_LONG) return false;
++				break;
++			case IS_DOUBLE:
++				if (Z_TYPE_P(val) != IS_DOUBLE && Z_TYPE_P(val) != IS_LONG) return false;
++				break;
++			case IS_STRING:
++				if (Z_TYPE_P(val) != IS_STRING) return false;
++				break;
++			case _IS_BOOL:
++				if (Z_TYPE_P(val) != IS_TRUE && Z_TYPE_P(val) != IS_FALSE) return false;
++				break;
++			default:
++				return false; /* Can't verify object types at compile time */
++		}
++	} ZEND_HASH_FOREACH_END();
++	return true;
++}
++
+ static void zend_emit_return_type_check(
+ 		znode *expr, zend_arg_info *return_info, bool implicit) /* {{{ */
+ {
+@@ -2669,8 +2694,20 @@ static void zend_emit_return_type_check(
  		}
  
  		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
@@ -41,10 +73,20 @@ index 8be1ee14..71a3618e 100644
 +			if (!ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
 +				return;
 +			}
++			/* Escape analysis: if constant array elements all match the type, skip runtime check */
++			if (Z_TYPE(expr->u.constant) == IS_ARRAY) {
++				const zend_typed_array_element *elem_type = ZEND_TYPED_ARRAY_ELEMENT(type);
++				if (elem_type && elem_type->type_code != IS_OBJECT) {
++					/* Can verify primitive types at compile time */
++					if (zend_const_array_elements_match_type(&expr->u.constant, elem_type->type_code)) {
++						return; /* All elements match - no runtime check needed */
++					}
++				}
++			}
  		}
  
  		opline = zend_emit_op(NULL, ZEND_VERIFY_RETURN_TYPE, expr, NULL);
-@@ -7028,6 +7030,29 @@ static void zend_compile_declare(zend_ast *ast) /* {{{ */
+@@ -7028,6 +7065,29 @@ static void zend_compile_declare(zend_ast *ast) /* {{{ */
  				CG(active_op_array)->fn_flags |= ZEND_ACC_STRICT_TYPES;
  			}
  
@@ -74,7 +116,7 @@ index 8be1ee14..71a3618e 100644
  		} else {
  			zend_error(E_COMPILE_WARNING, "Unsupported declare '%s'", ZSTR_VAL(name));
  		}
-@@ -7086,6 +7111,35 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+@@ -7086,6 +7146,35 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
  		}
  
  		return (zend_type) ZEND_TYPE_INIT_CODE(ast->attr, 0, 0);
@@ -110,7 +152,7 @@ index 8be1ee14..71a3618e 100644
  	} else {
  		zend_string *type_name = zend_ast_get_str(ast);
  		uint8_t type_code = zend_lookup_builtin_type_by_name(type_name);
-@@ -8460,6 +8514,7 @@ static zend_op_array *zend_compile_func_decl_ex(
+@@ -8460,6 +8549,7 @@ static zend_op_array *zend_compile_func_decl_ex(
  	}
  
  	op_array->fn_flags |= (orig_op_array->fn_flags & ZEND_ACC_STRICT_TYPES);
@@ -165,10 +207,10 @@ index c07fa9bf..3d0780cf 100644
  	(EG(current_execute_data)->prev_execute_data && \
  	 EG(current_execute_data)->prev_execute_data->func && \
 diff --git a/Zend/zend_execute.c b/Zend/zend_execute.c
-index 5665cc0c..d8f1c07b 100644
+index 5665cc0c..26a302e4 100644
 --- a/Zend/zend_execute.c
 +++ b/Zend/zend_execute.c
-@@ -1434,6 +1434,210 @@ ZEND_API ZEND_COLD void zend_verify_return_error(const zend_function *zf, const
+@@ -1434,6 +1434,348 @@ ZEND_API ZEND_COLD void zend_verify_return_error(const zend_function *zf, const
  	zend_string_release(need_msg);
  }
  
@@ -193,9 +235,77 @@ index 5665cc0c..d8f1c07b 100644
 + * 2. Minimal work in hot path (no index tracking, no type name assignment)
 + * 3. ZEND_HASH_FOREACH_VAL instead of KEY_VAL when keys not needed
 + * 4. Class entry cached for object types
++ * 5. Fast path for packed arrays without references (4x loop unrolling)
++ * 6. Prefetching for cache efficiency on large arrays
 + */
++
++/* Fast path for packed arrays - processes 4 elements at a time */
++static zend_always_inline bool zend_verify_packed_array_elements_long(zval *data, uint32_t count)
++{
++	zval *end = data + count;
++	zval *prefetch_ptr;
++
++	/* Process 4 elements at a time */
++	while (data + 4 <= end) {
++		/* Prefetch next cache line */
++		prefetch_ptr = data + 8;
++		if (prefetch_ptr < end) {
++			__builtin_prefetch(prefetch_ptr, 0, 1);
++		}
++
++		/* Unrolled checks - compiler can pipeline these */
++		if (UNEXPECTED(Z_TYPE_P(data) != IS_LONG)) {
++			if (Z_TYPE_P(data) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		if (UNEXPECTED(Z_TYPE_P(data + 1) != IS_LONG)) {
++			if (Z_TYPE_P(data + 1) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		if (UNEXPECTED(Z_TYPE_P(data + 2) != IS_LONG)) {
++			if (Z_TYPE_P(data + 2) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		if (UNEXPECTED(Z_TYPE_P(data + 3) != IS_LONG)) {
++			if (Z_TYPE_P(data + 3) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		data += 4;
++	}
++
++	/* Handle remaining elements */
++	while (data < end) {
++		if (UNEXPECTED(Z_TYPE_P(data) != IS_LONG)) {
++			if (Z_TYPE_P(data) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		data++;
++	}
++	return true;
++
++slow_path:
++	/* Fall back to reference-aware path from current position */
++	while (data < end) {
++		zval *val = data;
++		if (Z_TYPE_P(val) == IS_REFERENCE) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_LONG)) {
++			return false;
++		}
++		data++;
++	}
++	return true;
++}
++
 +static zend_always_inline bool zend_verify_array_elements_long(HashTable *ht)
 +{
++	/* Fast path for packed arrays */
++	if (HT_IS_PACKED(ht) && HT_IS_WITHOUT_HOLES(ht)) {
++		return zend_verify_packed_array_elements_long(ht->arPacked, ht->nNumOfElements);
++	}
++
++	/* Generic path for non-packed arrays */
 +	zval *val;
 +	ZEND_HASH_FOREACH_VAL(ht, val) {
 +		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
@@ -222,8 +332,66 @@ index 5665cc0c..d8f1c07b 100644
 +	return true;
 +}
 +
++/* Fast path for packed arrays - string validation */
++static zend_always_inline bool zend_verify_packed_array_elements_string(zval *data, uint32_t count)
++{
++	zval *end = data + count;
++	zval *prefetch_ptr;
++
++	while (data + 4 <= end) {
++		prefetch_ptr = data + 8;
++		if (prefetch_ptr < end) {
++			__builtin_prefetch(prefetch_ptr, 0, 1);
++		}
++
++		if (UNEXPECTED(Z_TYPE_P(data) != IS_STRING)) {
++			if (Z_TYPE_P(data) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		if (UNEXPECTED(Z_TYPE_P(data + 1) != IS_STRING)) {
++			if (Z_TYPE_P(data + 1) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		if (UNEXPECTED(Z_TYPE_P(data + 2) != IS_STRING)) {
++			if (Z_TYPE_P(data + 2) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		if (UNEXPECTED(Z_TYPE_P(data + 3) != IS_STRING)) {
++			if (Z_TYPE_P(data + 3) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		data += 4;
++	}
++
++	while (data < end) {
++		if (UNEXPECTED(Z_TYPE_P(data) != IS_STRING)) {
++			if (Z_TYPE_P(data) == IS_REFERENCE) goto slow_path;
++			return false;
++		}
++		data++;
++	}
++	return true;
++
++slow_path:
++	while (data < end) {
++		zval *val = data;
++		if (Z_TYPE_P(val) == IS_REFERENCE) {
++			val = Z_REFVAL_P(val);
++		}
++		if (UNEXPECTED(Z_TYPE_P(val) != IS_STRING)) {
++			return false;
++		}
++		data++;
++	}
++	return true;
++}
++
 +static zend_always_inline bool zend_verify_array_elements_string(HashTable *ht)
 +{
++	if (HT_IS_PACKED(ht) && HT_IS_WITHOUT_HOLES(ht)) {
++		return zend_verify_packed_array_elements_string(ht->arPacked, ht->nNumOfElements);
++	}
++
 +	zval *val;
 +	ZEND_HASH_FOREACH_VAL(ht, val) {
 +		if (UNEXPECTED(Z_TYPE_P(val) == IS_REFERENCE)) {
@@ -329,6 +497,14 @@ index 5665cc0c..d8f1c07b 100644
 +		return true;
 +	}
 +
++	/* Fast path: check if array was already validated for this type */
++	/* Skip cache for object types with class names (would need class pointer in cache) */
++	if (HT_ELEM_TYPE_IS_VALID(ht) &&
++		HT_VALIDATED_ELEM_TYPE(ht) == elem_type->type_code &&
++		(elem_type->type_code != IS_OBJECT || elem_type->class_name == NULL)) {
++		return true;
++	}
++
 +	/* Select validation strategy based on type (done once, not per element) */
 +	switch (elem_type->type_code) {
 +		case IS_LONG:
@@ -361,8 +537,12 @@ index 5665cc0c..d8f1c07b 100644
 +			return true; /* Unknown type, don't validate */
 +	}
 +
-+	/* Fast path: all elements valid */
++	/* Fast path: all elements valid - update cache */
 +	if (EXPECTED(valid)) {
++		/* Cache the validated type (skip for class-specific object validation) */
++		if (elem_type->type_code != IS_OBJECT || elem_type->class_name == NULL) {
++			HT_SET_VALIDATED_ELEM_TYPE(ht, elem_type->type_code);
++		}
 +		return true;
 +	}
 +
@@ -395,6 +575,87 @@ index c08adf2a..73f403ad 100644
  ZEND_API ZEND_COLD void zend_verify_never_error(
  		const zend_function *zf);
  ZEND_API bool zend_verify_ref_array_assignable(zend_reference *ref);
+diff --git a/Zend/zend_hash.c b/Zend/zend_hash.c
+index 6978beaa..3dfc345e 100644
+--- a/Zend/zend_hash.c
++++ b/Zend/zend_hash.c
+@@ -829,6 +829,7 @@ static zend_always_inline zval *_zend_hash_add_or_update_i(HashTable *ht, zend_s
+ 
+ 	IS_CONSISTENT(ht);
+ 	HT_ASSERT_RC1(ht);
++	HT_INVALIDATE_ELEM_TYPE(ht);
+ 	zend_string_hash_val(key);
+ 
+ 	if (UNEXPECTED(HT_FLAGS(ht) & (HASH_FLAG_UNINITIALIZED|HASH_FLAG_PACKED))) {
+@@ -910,6 +911,7 @@ static zend_always_inline zval *_zend_hash_str_add_or_update_i(HashTable *ht, co
+ 
+ 	IS_CONSISTENT(ht);
+ 	HT_ASSERT_RC1(ht);
++	HT_INVALIDATE_ELEM_TYPE(ht);
+ 
+ 	if (UNEXPECTED(HT_FLAGS(ht) & (HASH_FLAG_UNINITIALIZED|HASH_FLAG_PACKED))) {
+ 		if (EXPECTED(HT_FLAGS(ht) & HASH_FLAG_UNINITIALIZED)) {
+@@ -1095,6 +1097,7 @@ static zend_always_inline zval *_zend_hash_index_add_or_update_i(HashTable *ht,
+ 
+ 	IS_CONSISTENT(ht);
+ 	HT_ASSERT_RC1(ht);
++	HT_INVALIDATE_ELEM_TYPE(ht);
+ 
+ 	if ((flag & HASH_ADD_NEXT) && h == ZEND_LONG_MIN) {
+ 		h = 0;
+@@ -1451,6 +1454,7 @@ static zend_always_inline void zend_hash_iterators_clamp_max(const HashTable *ht
+ 
+ static zend_always_inline void _zend_hash_packed_del_val(HashTable *ht, uint32_t idx, zval *zv)
+ {
++	HT_INVALIDATE_ELEM_TYPE(ht);
+ 	idx = HT_HASH_TO_IDX(idx);
+ 	ht->nNumOfElements--;
+ 	if (ht->nNumUsed - 1 == idx) {
+@@ -1472,6 +1476,7 @@ static zend_always_inline void _zend_hash_packed_del_val(HashTable *ht, uint32_t
+ 
+ static zend_always_inline void _zend_hash_del_el_ex(HashTable *ht, uint32_t idx, Bucket *p, Bucket *prev)
+ {
++	HT_INVALIDATE_ELEM_TYPE(ht);
+ 	if (prev) {
+ 		Z_NEXT(prev->val) = Z_NEXT(p->val);
+ 	} else {
+@@ -1876,6 +1881,7 @@ ZEND_API void ZEND_FASTCALL zend_hash_clean(HashTable *ht)
+ {
+ 	IS_CONSISTENT(ht);
+ 	HT_ASSERT_RC1(ht);
++	HT_INVALIDATE_ELEM_TYPE(ht);
+ 
+ 	if (ht->nNumUsed) {
+ 		if (HT_IS_PACKED(ht)) {
+diff --git a/Zend/zend_hash.h b/Zend/zend_hash.h
+index 57020bbc..0111c64d 100644
+--- a/Zend/zend_hash.h
++++ b/Zend/zend_hash.h
+@@ -46,6 +46,7 @@ typedef enum {
+ #define HASH_FLAG_STATIC_KEYS      (1<<4) /* long and interned strings */
+ #define HASH_FLAG_HAS_EMPTY_IND    (1<<5)
+ #define HASH_FLAG_ALLOW_COW_VIOLATION (1<<6)
++#define HASH_FLAG_ELEM_TYPE_VALID  (1<<7) /* Element type validation cache is valid */
+ 
+ /* Only the low byte are real flags */
+ #define HASH_FLAG_MASK 0xff
+@@ -85,6 +86,16 @@ typedef enum {
+ #define HT_DEC_ITERATORS_COUNT(ht) \
+ 	HT_SET_ITERATORS_COUNT(ht, HT_ITERATORS_COUNT(ht) - 1)
+ 
++/* Element type validation cache for array<T> optimization */
++#define HT_VALIDATED_ELEM_TYPE(ht) (ht)->u.v.nValidatedElemType
++#define HT_ELEM_TYPE_IS_VALID(ht) ((HT_FLAGS(ht) & HASH_FLAG_ELEM_TYPE_VALID) != 0)
++#define HT_INVALIDATE_ELEM_TYPE(ht) \
++	do { HT_FLAGS(ht) &= ~HASH_FLAG_ELEM_TYPE_VALID; } while (0)
++#define HT_SET_VALIDATED_ELEM_TYPE(ht, type) do { \
++		(ht)->u.v.nValidatedElemType = (type); \
++		HT_FLAGS(ht) |= HASH_FLAG_ELEM_TYPE_VALID; \
++	} while (0)
++
+ extern ZEND_API const HashTable zend_empty_array;
+ 
+ #define ZVAL_EMPTY_ARRAY(z) do {						\
 diff --git a/Zend/zend_language_parser.y b/Zend/zend_language_parser.y
 index e4d61006..f9a17d5b 100644
 --- a/Zend/zend_language_parser.y
@@ -409,7 +670,7 @@ index e4d61006..f9a17d5b 100644
  
  union_type_without_static_element:
 diff --git a/Zend/zend_types.h b/Zend/zend_types.h
-index a3d3e4da..a2f193af 100644
+index a3d3e4da..18a0d16b 100644
 --- a/Zend/zend_types.h
 +++ b/Zend/zend_types.h
 @@ -191,6 +191,9 @@ typedef struct {
@@ -422,6 +683,15 @@ index a3d3e4da..a2f193af 100644
  #define ZEND_TYPE_IS_ONLY_MASK(t) \
  	(ZEND_TYPE_IS_SET(t) && (t).ptr == NULL)
  
+@@ -411,7 +414,7 @@ struct _zend_array {
+ 		struct {
+ 			ZEND_ENDIAN_LOHI_4(
+ 				uint8_t    flags,
+-				uint8_t    _unused,
++				uint8_t    nValidatedElemType,  /* Cached validated element type for array<T> */
+ 				uint8_t    nIteratorsCount,
+ 				uint8_t    _unused2)
+ 		} v;
 diff --git a/Zend/zend_vm_def.h b/Zend/zend_vm_def.h
 index 90247b3c..fee38710 100644
 --- a/Zend/zend_vm_def.h

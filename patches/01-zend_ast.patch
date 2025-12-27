@@ -1,0 +1,27 @@
+--- a/Zend/zend_ast.h
++++ b/Zend/zend_ast.h
+@@ -70,6 +70,7 @@ enum _zend_ast_kind {
+ 	ZEND_AST_ATTRIBUTE_GROUP,
+ 	ZEND_AST_MATCH_ARM_LIST,
+ 	ZEND_AST_MODIFIER_LIST,
++	ZEND_AST_SHAPE_ELEMENT_LIST,
+
+ 	/* 0 child nodes */
+ 	ZEND_AST_MAGIC_CONST = 0 << ZEND_AST_NUM_CHILDREN_SHIFT,
+@@ -83,6 +84,8 @@ enum _zend_ast_kind {
+ 	/* 1 child node */
+ 	ZEND_AST_VAR = 1 << ZEND_AST_NUM_CHILDREN_SHIFT,
+ 	ZEND_AST_CONST,
++	ZEND_AST_TYPE_ARRAY_OF,
++	ZEND_AST_TYPE_ARRAY_SHAPE,
+ 	ZEND_AST_UNPACK,
+ 	ZEND_AST_UNARY_PLUS,
+ 	ZEND_AST_UNARY_MINUS,
+@@ -118,6 +121,7 @@ enum _zend_ast_kind {
+ 	/* 2 child nodes */
+ 	ZEND_AST_DIM = 2 << ZEND_AST_NUM_CHILDREN_SHIFT,
+ 	ZEND_AST_PROP,
++	ZEND_AST_SHAPE_ELEMENT,
+ 	ZEND_AST_NULLSAFE_PROP,
+ 	ZEND_AST_STATIC_PROP,
+ 	ZEND_AST_CALL,

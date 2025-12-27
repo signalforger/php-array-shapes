@@ -1,12 +1,12 @@
 # PHP RFC: Array Shape Return Types
 
 * Version: 1.0
-* Date: 2024-12-25
-* Author: [Your Name] <your.email@example.com>
+* Date: 2025-12-27
+* Author: [Signalforger] <signalforger@signalforge.eu>
 * Status: Draft
-* First Published: 2024-12-25
+* First Published: N/A
 * Target Version: PHP 8.5
-* Implementation: https://github.com/php/php-src/pull/XXXXX
+* Implementation: N/A
 
 ## Introduction
 

@@ -1,7 +1,7 @@
 From 620308331f30f41ce32cdc37a25287b4a4bc5962 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:32 +0100
-Subject: [PATCH 01/17] Add parser support for array<T> type syntax
+Subject: [PATCH 01/18] Add parser support for array<T> type syntax
 
 Extend the PHP parser to recognize the array<T> syntax for
 homogeneous array type declarations in return types.
@@ -43,7 +43,7 @@ index e4d61006..f9a17d5b 100644
 From 3ff56469b5cce9e46eadd46a645c295514f44a71 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:43 +0100
-Subject: [PATCH 02/17] Add ZEND_AST_TYPE_ARRAY_OF AST node type
+Subject: [PATCH 02/18] Add ZEND_AST_TYPE_ARRAY_OF AST node type
 
 Define new AST node kind for array<T> type syntax representation.
 
@@ -94,7 +94,7 @@ index fb48b187..12a66bf6 100644
 From 7085586ffff8d0a1225d8ae52262c07b85fc39b5 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:53 +0100
-Subject: [PATCH 03/17] Add ZEND_TYPE_HAS_ARRAY_ELEMENT macro for array<T>
+Subject: [PATCH 03/18] Add ZEND_TYPE_HAS_ARRAY_ELEMENT macro for array<T>
  detection
 
 Introduce a macro to detect when a zend_type contains array element
@@ -133,7 +133,7 @@ index a3d3e4da..a2f193af 100644
 From c3e46bd1badb6d84f46fb5ad422d8c7c4ad6485b Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:05 +0100
-Subject: [PATCH 04/17] Add strict_arrays directive and array element type
+Subject: [PATCH 04/18] Add strict_arrays directive and array element type
  structures
 
 Introduce support for declare(strict_arrays=1) directive and define
@@ -210,7 +210,7 @@ index c07fa9bf..3d0780cf 100644
 From 3ef5c87ebce71258c7569ad789232d4182157ab3 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:20 +0100
-Subject: [PATCH 05/17] Implement array<T> type compilation and strict_arrays
+Subject: [PATCH 05/18] Implement array<T> type compilation and strict_arrays
  directive
 
 Handle compilation of array<T> type syntax and declare(strict_arrays=1)
@@ -339,7 +339,7 @@ index 8be1ee14..71a3618e 100644
 From db849918f55f8753c7cdf03fce7ae145d548af57 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:31 +0100
-Subject: [PATCH 06/17] Declare array element type validation functions
+Subject: [PATCH 06/18] Declare array element type validation functions
 
 Add function declarations for runtime array<T> element validation.
 
@@ -378,7 +378,7 @@ index c08adf2a..73f403ad 100644
 From f7c4fefa99465a9e56c742e549db6537778e5e71 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:42 +0100
-Subject: [PATCH 07/17] Implement runtime array element type validation
+Subject: [PATCH 07/18] Implement runtime array element type validation
 
 Add functions to validate array elements against array<T> type at
 runtime when strict_arrays=1 is enabled.
@@ -507,7 +507,7 @@ index 5665cc0c..84aecb03 100644
 From e76b5335dafd309a5ef57abe528d1a9f96e0275d Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:59 +0100
-Subject: [PATCH 08/17] Integrate array<T> validation in VERIFY_RETURN_TYPE
+Subject: [PATCH 08/18] Integrate array<T> validation in VERIFY_RETURN_TYPE
  opcode
 
 Modify the ZEND_VERIFY_RETURN_TYPE opcode handler to validate array
@@ -557,7 +557,7 @@ index 90247b3c..fee38710 100644
 From a0d62e871dbd40509cff22c53692bf25bdebc510 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:59:10 +0100
-Subject: [PATCH 09/17] Regenerate VM executor with array<T> validation support
+Subject: [PATCH 09/18] Regenerate VM executor with array<T> validation support
 
 Regenerate zend_vm_execute.h from zend_vm_def.h using zend_vm_gen.php.
 
@@ -609,7 +609,7 @@ zG}f#gsA0`oOFaQmP$0%y>dC_PUXO+t;WV6qI3!>kl8}NlOu!_Z1r^axeX9Qj$JQXb
 From 08dd8deb20bc445bfb69c76f13652e40aced7bd2 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 16:17:28 +0100
-Subject: [PATCH 10/17] Optimize array element type validation for
+Subject: [PATCH 10/18] Optimize array element type validation for
  declare(strict_arrays=1)
 
 Key performance optimizations:
@@ -865,7 +865,7 @@ index 84aecb03..d8f1c07b 100644
 From 41ea44a33db598810d0d93e47b70eacc36854441 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 16:35:01 +0100
-Subject: [PATCH 11/17] Add comprehensive performance optimizations for
+Subject: [PATCH 11/18] Add comprehensive performance optimizations for
  array<T> validation
 
 Implements multiple optimization strategies to minimize runtime overhead
@@ -1236,7 +1236,7 @@ index a2f193af..18a0d16b 100644
 From 31e545580a81c1617ed6bc146939c10966ff116f Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 12:14:32 +0100
-Subject: [PATCH 12/17] Add union type support for array<T> element types
+Subject: [PATCH 12/18] Add union type support for array<T> element types
 
 This commit enables union types inside the array<T> syntax, allowing
 declarations like array<int|string>, array<int|MyObject>, and
@@ -1653,7 +1653,7 @@ index 26a302e4..06dc61a2 100644
 From 444764bbc064b5bfe71123d09dbaf6f7409b09ac Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:31:16 +0100
-Subject: [PATCH 13/17] Add nested array support for array<array<T>> syntax
+Subject: [PATCH 13/18] Add nested array support for array<array<T>> syntax
 
 - Parser: Handle >> (T_SR) token in nested array type declarations
   Supports up to 4 levels of nesting (array<array<array<array<T>>>>)
@@ -1917,7 +1917,7 @@ index f9a17d5b..2701f329 100644
 From dd378947825778b0a1e4f998faf9532384b1c2a8 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:56:37 +0100
-Subject: [PATCH 14/17] Add array<T> parameter type validation
+Subject: [PATCH 14/18] Add array<T> parameter type validation
 
 - Add zend_verify_array_arg_element_types() for parameter validation
 - Add zend_verify_array_arg_element_type_error() for proper argument error messages
@@ -2188,7 +2188,7 @@ s7=ck3!-(Pd_V0(B^t=;Z&M1dr7>5anz$8q;G|WI0W+BFu!?+{+4ahycP5=M^
 From 1f7ff3ec718c1fdfeed6e7475dd9530003834f36 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 16:29:07 +0100
-Subject: [PATCH 15/17] Add key types (array<K, V>) and property type support
+Subject: [PATCH 15/18] Add key types (array<K, V>) and property type support
  for strict_arrays
 
 - Add array<K, V> syntax for specifying key types (int, string, or int|string)
@@ -2638,7 +2638,7 @@ index 67257913..c723e4d6 100644
 From 19af69da6325cec7a709e7548873dc055f9c0681 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 20:07:46 +0100
-Subject: [PATCH 16/17] Add array shape types (array{key: type}) with
+Subject: [PATCH 16/18] Add array shape types (array{key: type}) with
  reflection support
 
 This commit adds support for array shape return types with the following features:
@@ -6878,7 +6878,7 @@ index 8ba243a5..dc32bbda 100644
 From bb2b2a65df93458d9bc5117518ed67b0abb37b87 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 20:40:25 +0100
-Subject: [PATCH 17/17] Fix segfault in escape analysis for array shapes
+Subject: [PATCH 17/18] Fix segfault in escape analysis for array shapes
 
 The escape analysis code was incorrectly treating array shape types
 the same as array<T> types. For array shapes, the type.ptr points to
@@ -6905,6 +6905,318 @@ index 52c80623..cf995f7d 100644
  				const zend_typed_array_element *elem_type = ZEND_TYPED_ARRAY_ELEMENT(type);
  				if (elem_type) {
  					/* Try to verify at compile time (works for primitive types and unions of primitives) */
+-- 
+2.43.0
+
+
+From d18172cbd948cc2348aebbb8fb5d96ef6741b00e Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
+Date: Sun, 28 Dec 2025 22:41:59 +0100
+Subject: [PATCH 18/18] Add tests for array shapes and typed arrays
+
+Tests cover:
+- Parameter type shapes (basic, missing key, wrong type, optional keys, nested)
+- Return type shapes (basic, missing key)
+- Typed arrays as parameters (array<T>)
+- Class method shapes
+---
+ .../array_shapes/class_method.phpt            | 23 +++++++++++++
+ .../array_shapes/param_basic.phpt             | 20 +++++++++++
+ .../array_shapes/param_missing_key.phpt       | 19 +++++++++++
+ .../array_shapes/param_nested_shape.phpt      | 26 +++++++++++++++
+ .../array_shapes/param_optional_keys.phpt     | 33 +++++++++++++++++++
+ .../array_shapes/param_typed_array.phpt       | 21 ++++++++++++
+ .../array_shapes/param_typed_array_error.phpt | 19 +++++++++++
+ .../array_shapes/param_wrong_type.phpt        | 19 +++++++++++
+ .../array_shapes/return_basic.phpt            | 16 +++++++++
+ .../array_shapes/return_missing_key.phpt      | 19 +++++++++++
+ 10 files changed, 215 insertions(+)
+ create mode 100644 Zend/tests/type_declarations/array_shapes/class_method.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_basic.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_typed_array.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/return_basic.phpt
+ create mode 100644 Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
+
+diff --git a/Zend/tests/type_declarations/array_shapes/class_method.phpt b/Zend/tests/type_declarations/array_shapes/class_method.phpt
+new file mode 100644
+index 00000000..fd4ae661
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/class_method.phpt
+@@ -0,0 +1,23 @@
++--TEST--
++Array shape in class methods
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++class UserService {
++    public function createUser(array{name: string, email: string} $data): array{id: int, name: string, email: string} {
++        return [
++            'id' => 1,
++            'name' => $data['name'],
++            'email' => $data['email']
++        ];
++    }
++}
++
++$service = new UserService();
++$user = $service->createUser(['name' => 'Alice', 'email' => 'alice@example.com']);
++echo "Created user: {$user['name']} (ID: {$user['id']})\n";
++
++?>
++--EXPECT--
++Created user: Alice (ID: 1)
+diff --git a/Zend/tests/type_declarations/array_shapes/param_basic.phpt b/Zend/tests/type_declarations/array_shapes/param_basic.phpt
+new file mode 100644
+index 00000000..84c2e0b1
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_basic.phpt
+@@ -0,0 +1,20 @@
++--TEST--
++Array shape as parameter type - basic validation
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processPoint(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++// Valid call
++echo processPoint(['x' => 10, 'y' => 20]) . "\n";
++
++// Extra keys are allowed (open shapes)
++echo processPoint(['x' => 5, 'y' => 15, 'z' => 100]) . "\n";
++
++?>
++--EXPECT--
++30
++20
+diff --git a/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt b/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
+new file mode 100644
+index 00000000..8dbe8bad
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Array shape as parameter type - missing required key
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processPoint(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++try {
++    processPoint(['x' => 10]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: Argument #1 must be of type array{y: ...}, missing required key "y"
+diff --git a/Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt b/Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt
+new file mode 100644
+index 00000000..0e92ee01
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt
+@@ -0,0 +1,26 @@
++--TEST--
++Array shape as parameter type - nested shapes
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processUser(array{
++    id: int,
++    profile: array{name: string, email: string}
++} $user): string {
++    return $user['profile']['name'] . ' <' . $user['profile']['email'] . '>';
++}
++
++$user = [
++    'id' => 1,
++    'profile' => [
++        'name' => 'Alice',
++        'email' => 'alice@example.com'
++    ]
++];
++
++echo processUser($user) . "\n";
++
++?>
++--EXPECT--
++Alice <alice@example.com>
+diff --git a/Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt b/Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt
+new file mode 100644
+index 00000000..c64f8c50
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt
+@@ -0,0 +1,33 @@
++--TEST--
++Array shape as parameter type - optional keys
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processConfig(array{host: string, port?: int, ssl?: bool} $config): string {
++    $result = $config['host'];
++    if (isset($config['port'])) {
++        $result .= ':' . $config['port'];
++    }
++    if (isset($config['ssl']) && $config['ssl']) {
++        $result = 'https://' . $result;
++    } else {
++        $result = 'http://' . $result;
++    }
++    return $result;
++}
++
++// Only required key
++echo processConfig(['host' => 'localhost']) . "\n";
++
++// With optional port
++echo processConfig(['host' => 'example.com', 'port' => 8080]) . "\n";
++
++// With all keys
++echo processConfig(['host' => 'secure.com', 'port' => 443, 'ssl' => true]) . "\n";
++
++?>
++--EXPECT--
++http://localhost
++http://example.com:8080
++https://secure.com:443
+diff --git a/Zend/tests/type_declarations/array_shapes/param_typed_array.phpt b/Zend/tests/type_declarations/array_shapes/param_typed_array.phpt
+new file mode 100644
+index 00000000..b5b462f2
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_typed_array.phpt
+@@ -0,0 +1,21 @@
++--TEST--
++Typed array as parameter type - array<T>
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function sumNumbers(array<int> $numbers): int {
++    return array_sum($numbers);
++}
++
++function joinStrings(array<string> $strings): string {
++    return implode(', ', $strings);
++}
++
++echo sumNumbers([1, 2, 3, 4, 5]) . "\n";
++echo joinStrings(['a', 'b', 'c']) . "\n";
++
++?>
++--EXPECT--
++15
++a, b, c
+diff --git a/Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt b/Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt
+new file mode 100644
+index 00000000..be2bfd1b
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Typed array as parameter type - wrong element type
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function sumNumbers(array<int> $numbers): int {
++    return array_sum($numbers);
++}
++
++try {
++    sumNumbers([1, 2, 'three', 4]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: sumNumbers(): Argument #1 ($numbers) must be of type array<int>, array element at index 2 is string
+diff --git a/Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt b/Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt
+new file mode 100644
+index 00000000..b48df2a5
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Array shape as parameter type - wrong value type
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processPoint(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++try {
++    processPoint(['x' => 10, 'y' => 'not an int']);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: Argument #1 key "y" must be of type int, string given
+diff --git a/Zend/tests/type_declarations/array_shapes/return_basic.phpt b/Zend/tests/type_declarations/array_shapes/return_basic.phpt
+new file mode 100644
+index 00000000..99e61988
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/return_basic.phpt
+@@ -0,0 +1,16 @@
++--TEST--
++Array shape as return type - basic validation
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function getPoint(): array{x: int, y: int} {
++    return ['x' => 10, 'y' => 20];
++}
++
++$point = getPoint();
++echo "x={$point['x']}, y={$point['y']}\n";
++
++?>
++--EXPECT--
++x=10, y=20
+diff --git a/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt b/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
+new file mode 100644
+index 00000000..0134821d
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Array shape as return type - missing required key
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function getPoint(): array{x: int, y: int} {
++    return ['x' => 10];
++}
++
++try {
++    getPoint();
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: getPoint(): Return value must be of type array{y: ...}, missing required key "y"
 -- 
 2.43.0
 

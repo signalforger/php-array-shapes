@@ -81,6 +81,281 @@ index 5b8ec6f0..fabe5902 100644
  [![Push](https://github.com/php/php-src/actions/workflows/push.yml/badge.svg)](https://github.com/php/php-src/actions/workflows/push.yml)
  [![Fuzzing Status](https://oss-fuzz-build-logs.storage.googleapis.com/badges/php.svg)](https://issues.oss-fuzz.com/issues?q=project:php)
  
+diff --git a/Zend/tests/type_declarations/array_shapes/class_method.phpt b/Zend/tests/type_declarations/array_shapes/class_method.phpt
+new file mode 100644
+index 00000000..fd4ae661
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/class_method.phpt
+@@ -0,0 +1,23 @@
++--TEST--
++Array shape in class methods
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++class UserService {
++    public function createUser(array{name: string, email: string} $data): array{id: int, name: string, email: string} {
++        return [
++            'id' => 1,
++            'name' => $data['name'],
++            'email' => $data['email']
++        ];
++    }
++}
++
++$service = new UserService();
++$user = $service->createUser(['name' => 'Alice', 'email' => 'alice@example.com']);
++echo "Created user: {$user['name']} (ID: {$user['id']})\n";
++
++?>
++--EXPECT--
++Created user: Alice (ID: 1)
+diff --git a/Zend/tests/type_declarations/array_shapes/param_basic.phpt b/Zend/tests/type_declarations/array_shapes/param_basic.phpt
+new file mode 100644
+index 00000000..84c2e0b1
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_basic.phpt
+@@ -0,0 +1,20 @@
++--TEST--
++Array shape as parameter type - basic validation
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processPoint(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++// Valid call
++echo processPoint(['x' => 10, 'y' => 20]) . "\n";
++
++// Extra keys are allowed (open shapes)
++echo processPoint(['x' => 5, 'y' => 15, 'z' => 100]) . "\n";
++
++?>
++--EXPECT--
++30
++20
+diff --git a/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt b/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
+new file mode 100644
+index 00000000..8dbe8bad
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Array shape as parameter type - missing required key
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processPoint(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++try {
++    processPoint(['x' => 10]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: Argument #1 must be of type array{y: ...}, missing required key "y"
+diff --git a/Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt b/Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt
+new file mode 100644
+index 00000000..0e92ee01
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_nested_shape.phpt
+@@ -0,0 +1,26 @@
++--TEST--
++Array shape as parameter type - nested shapes
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processUser(array{
++    id: int,
++    profile: array{name: string, email: string}
++} $user): string {
++    return $user['profile']['name'] . ' <' . $user['profile']['email'] . '>';
++}
++
++$user = [
++    'id' => 1,
++    'profile' => [
++        'name' => 'Alice',
++        'email' => 'alice@example.com'
++    ]
++];
++
++echo processUser($user) . "\n";
++
++?>
++--EXPECT--
++Alice <alice@example.com>
+diff --git a/Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt b/Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt
+new file mode 100644
+index 00000000..c64f8c50
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_optional_keys.phpt
+@@ -0,0 +1,33 @@
++--TEST--
++Array shape as parameter type - optional keys
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processConfig(array{host: string, port?: int, ssl?: bool} $config): string {
++    $result = $config['host'];
++    if (isset($config['port'])) {
++        $result .= ':' . $config['port'];
++    }
++    if (isset($config['ssl']) && $config['ssl']) {
++        $result = 'https://' . $result;
++    } else {
++        $result = 'http://' . $result;
++    }
++    return $result;
++}
++
++// Only required key
++echo processConfig(['host' => 'localhost']) . "\n";
++
++// With optional port
++echo processConfig(['host' => 'example.com', 'port' => 8080]) . "\n";
++
++// With all keys
++echo processConfig(['host' => 'secure.com', 'port' => 443, 'ssl' => true]) . "\n";
++
++?>
++--EXPECT--
++http://localhost
++http://example.com:8080
++https://secure.com:443
+diff --git a/Zend/tests/type_declarations/array_shapes/param_typed_array.phpt b/Zend/tests/type_declarations/array_shapes/param_typed_array.phpt
+new file mode 100644
+index 00000000..b5b462f2
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_typed_array.phpt
+@@ -0,0 +1,21 @@
++--TEST--
++Typed array as parameter type - array<T>
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function sumNumbers(array<int> $numbers): int {
++    return array_sum($numbers);
++}
++
++function joinStrings(array<string> $strings): string {
++    return implode(', ', $strings);
++}
++
++echo sumNumbers([1, 2, 3, 4, 5]) . "\n";
++echo joinStrings(['a', 'b', 'c']) . "\n";
++
++?>
++--EXPECT--
++15
++a, b, c
+diff --git a/Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt b/Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt
+new file mode 100644
+index 00000000..be2bfd1b
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_typed_array_error.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Typed array as parameter type - wrong element type
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function sumNumbers(array<int> $numbers): int {
++    return array_sum($numbers);
++}
++
++try {
++    sumNumbers([1, 2, 'three', 4]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: sumNumbers(): Argument #1 ($numbers) must be of type array<int>, array element at index 2 is string
+diff --git a/Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt b/Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt
+new file mode 100644
+index 00000000..b48df2a5
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_wrong_type.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Array shape as parameter type - wrong value type
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function processPoint(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++try {
++    processPoint(['x' => 10, 'y' => 'not an int']);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: Argument #1 key "y" must be of type int, string given
+diff --git a/Zend/tests/type_declarations/array_shapes/return_basic.phpt b/Zend/tests/type_declarations/array_shapes/return_basic.phpt
+new file mode 100644
+index 00000000..99e61988
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/return_basic.phpt
+@@ -0,0 +1,16 @@
++--TEST--
++Array shape as return type - basic validation
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function getPoint(): array{x: int, y: int} {
++    return ['x' => 10, 'y' => 20];
++}
++
++$point = getPoint();
++echo "x={$point['x']}, y={$point['y']}\n";
++
++?>
++--EXPECT--
++x=10, y=20
+diff --git a/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt b/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
+new file mode 100644
+index 00000000..0134821d
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
+@@ -0,0 +1,19 @@
++--TEST--
++Array shape as return type - missing required key
++--FILE--
++<?php
++declare(strict_arrays=1);
++
++function getPoint(): array{x: int, y: int} {
++    return ['x' => 10];
++}
++
++try {
++    getPoint();
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++?>
++--EXPECT--
++TypeError: getPoint(): Return value must be of type array{y: ...}, missing required key "y"
 diff --git a/Zend/zend_ast.h b/Zend/zend_ast.h
 index fb48b187..5b60d0df 100644
 --- a/Zend/zend_ast.h

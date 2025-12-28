@@ -165,7 +165,7 @@ Native types work in any PHP-aware editor immediately. Docblock-based types requ
 
 ### Syntax
 
-This RFC introduces two new type declaration syntaxes for array return types:
+This RFC introduces two new type declaration syntaxes for array types (both return types and parameter types):
 
 #### 1. Homogeneous Arrays: `array<T>`
 
@@ -212,7 +212,29 @@ function getFullConfig(): array{host: string, port?: int, ssl?: bool} {
 }
 ```
 
-#### 4. Nested Structures
+#### 4. Parameter Types
+
+Array shapes and typed arrays work as parameter types too:
+```php
+// Shape as parameter type
+function processOrder(array{product: string, quantity: int, price: float} $order): float {
+    return $order['quantity'] * $order['price'];
+}
+
+// Typed array as parameter
+function sumNumbers(array<int> $numbers): int {
+    return array_sum($numbers);
+}
+
+// Both parameter and return types
+function transformUser(
+    array{id: int, name: string} $input
+): array{id: int, name: string, processed: bool} {
+    return [...$input, 'processed' => true];
+}
+```
+
+#### 5. Nested Structures
 
 Both syntaxes can be nested:
 ```php
@@ -923,14 +945,14 @@ if ($returnType instanceof ReflectionArrayShapeType) {
 
 The following features are **intentionally excluded** from this RFC but could be proposed separately:
 
-#### 1. Parameter Type Shapes
+#### 1. Parameter Type Shapes ✓ IMPLEMENTED
 ```php
 function process(array{id: int, name: string} $data): void {
-    // Not in this RFC
+    // ✓ Works - validates parameter at call time
 }
 ```
 
-**Rationale:** Return types are simpler (single validation point). Parameter shapes add complexity around variance and reference passing.
+**Status:** Implemented in this version. Parameter shapes validate when the function is called.
 
 #### 2. Property Type Shapes
 ```php

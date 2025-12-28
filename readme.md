@@ -197,7 +197,22 @@ function getCoordinates(): array{0: float, 1: float} {
 }
 ```
 
-#### 3. Nested Structures
+#### 3. Optional Keys: `array{key?: type}`
+
+Keys marked with `?` are optional and don't need to be present:
+```php
+function getConfig(): array{host: string, port?: int, ssl?: bool} {
+    // Only 'host' is required
+    return ['host' => 'localhost'];
+}
+
+function getFullConfig(): array{host: string, port?: int, ssl?: bool} {
+    // All keys provided - also valid
+    return ['host' => 'secure.example.com', 'port' => 443, 'ssl' => true];
+}
+```
+
+#### 4. Nested Structures
 
 Both syntaxes can be nested:
 ```php
@@ -810,24 +825,96 @@ if ($returnType instanceof ReflectionArrayType) {
 }
 
 // For array{k: T}
-if ($returnType instanceof ReflectionArrayShape) {
-    $elements = $returnType->getElements();  // array<string, ReflectionType>
+if ($returnType instanceof ReflectionArrayShapeType) {
+    $elements = $returnType->getElements();  // array<ReflectionArrayShapeElement>
+    $count = $returnType->getElementCount();
+    $requiredCount = $returnType->getRequiredElementCount();
+
+    foreach ($elements as $element) {
+        echo $element->getName();       // Key name
+        echo $element->getType();       // ReflectionType for value
+        echo $element->isOptional();    // bool - true if key?: type
+    }
 }
 ```
 
 ### New Reflection Classes
+
+#### ReflectionArrayType
+For homogeneous arrays (`array<T>`):
 ```php
 class ReflectionArrayType extends ReflectionType {
+    /** Get the element type */
     public function getElementType(): ReflectionType;
-    public function getDepth(): int;  // For array<array<T>>
+}
+```
+
+#### ReflectionArrayShapeType
+For array shapes (`array{key: type}`):
+```php
+class ReflectionArrayShapeType extends ReflectionType {
+    /** Get all elements defined in the shape */
+    public function getElements(): array;  // array<ReflectionArrayShapeElement>
+
+    /** Get total number of elements */
+    public function getElementCount(): int;
+
+    /** Get number of required (non-optional) elements */
+    public function getRequiredElementCount(): int;
+}
+```
+
+#### ReflectionArrayShapeElement
+Represents a single element in an array shape:
+```php
+class ReflectionArrayShapeElement {
+    /** Get the key name */
+    public function getName(): string;
+
+    /** Get the type of this element's value */
+    public function getType(): ReflectionType;
+
+    /** Check if this element is optional (key?: type) */
+    public function isOptional(): bool;
+}
+```
+
+### Complete Reflection Example
+
+```php
+<?php
+declare(strict_arrays=1);
+
+function getUserProfile(): array{
+    id: int,
+    name: string,
+    email: string,
+    age?: int,
+    verified?: bool
+} {
+    return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
 }
 
-class ReflectionArrayShape extends ReflectionType {
-    /** @return array<string|int, ReflectionType> */
-    public function getElements(): array;
-    public function hasKey(string|int $key): bool;
-    public function getKeyType(string|int $key): ?ReflectionType;
+$reflection = new ReflectionFunction('getUserProfile');
+$returnType = $reflection->getReturnType();
+
+if ($returnType instanceof ReflectionArrayShapeType) {
+    echo "Total elements: " . $returnType->getElementCount() . "\n";        // 5
+    echo "Required elements: " . $returnType->getRequiredElementCount() . "\n"; // 3
+
+    foreach ($returnType->getElements() as $element) {
+        $optional = $element->isOptional() ? ' (optional)' : '';
+        echo "  {$element->getName()}: {$element->getType()}{$optional}\n";
+    }
 }
+// Output:
+// Total elements: 5
+// Required elements: 3
+//   id: int
+//   name: string
+//   email: string
+//   age: int (optional)
+//   verified: bool (optional)
 ```
 
 ## Future Scope
@@ -863,14 +950,14 @@ function getData(): array{id: int}! {  // Exact shape, no extra keys
 
 **Rationale:** Can be added later if needed. Open shapes (allowing extra keys) are more PHP-like.
 
-#### 4. Optional Keys
+#### 4. Optional Keys ✓ IMPLEMENTED
 ```php
 function getData(): array{id: int, name?: string} {
-    // Not in this RFC
+    return ['id' => 1];  // ✓ Works - 'name' is optional
 }
 ```
 
-**Rationale:** Adds complexity. Can use nullable types or separate return types for now.
+**Status:** Implemented in this version. Optional keys are marked with `?` after the key name.
 
 #### 5. List Types
 ```php

@@ -8,6 +8,44 @@
 * Target Version: PHP 8.5
 * Implementation: N/A
 
+## Table of Contents
+
+- [Introduction](#introduction)
+  - [Current Limitation](#current-limitation)
+  - [Proposed Solution](#proposed-solution)
+  - [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
+- [Proposal](#proposal)
+  - [Syntax](#syntax)
+    - [Homogeneous Arrays](#1-homogeneous-arrays-arrayt)
+    - [Array Shapes](#2-array-shapes-arraykey-type-)
+    - [Optional Keys](#3-optional-keys-arraykey-type)
+    - [Parameter Types](#4-parameter-types)
+    - [Nested Structures](#5-nested-structures)
+  - [Semantics](#semantics)
+    - [Runtime Validation Control](#runtime-validation-control-declarestrict_arrays1)
+    - [Validation Rules](#validation-rules)
+    - [Variance and Inheritance](#variance-and-inheritance)
+    - [Type Coercion Rules](#type-coercion-rules)
+    - [Edge Cases](#edge-cases)
+- [Examples](#examples)
+- [Backward Compatibility](#backward-compatibility)
+- [Performance Impact](#performance-impact)
+  - [Optimization Techniques](#optimization-techniques)
+- [Implementation](#implementation)
+- [Reflection](#reflection)
+  - [New Reflection Classes](#new-reflection-classes)
+- [Future Scope](#future-scope)
+- [Comparison with Other Languages](#comparison-with-other-languages)
+- [Security Implications](#security-implications)
+- [Real-World Framework Examples](#real-world-framework-examples)
+- [Migration Guide](#migration-guide)
+- [Common Objections / FAQ](#common-objections--faq)
+- [Open Questions](#open-questions)
+- [Voting](#voting)
+- [Patches and Tests](#patches-and-tests)
+- [Changelog](#changelog)
+- [References](#references)
+
 ## Introduction
 
 PHP's type system currently supports return type declarations for scalar types, classes, and the generic `array` type. However, the `array` type provides no structural information, forcing developers to rely on documentation and static analysis tools to understand array contents.

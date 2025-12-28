@@ -1233,13 +1233,10 @@ index a2f193af..18a0d16b 100644
 2.43.0
 
 
-From 5cd658a72abcf409ab26fceb09668992b148b35a Mon Sep 17 00:00:00 2001
+From 31e545580a81c1617ed6bc146939c10966ff116f Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 12:14:32 +0100
 Subject: [PATCH 12/15] Add union type support for array<T> element types
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 This commit enables union types inside the array<T> syntax, allowing
 declarations like array<int|string>, array<int|MyObject>, and
@@ -1257,10 +1254,6 @@ Key changes:
   simple int type due to class name bit handling)
 - Updated escape analysis to handle union types with new helper
   function zend_const_value_matches_type()
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_compile.c | 102 +++++++++++++++----------
  Zend/zend_compile.h |   8 +-
@@ -1657,13 +1650,10 @@ index 26a302e4..06dc61a2 100644
 2.43.0
 
 
-From 4e4ad7d3e403f1cacb152fb47bc2c8fdff3a29bf Mon Sep 17 00:00:00 2001
+From 444764bbc064b5bfe71123d09dbaf6f7409b09ac Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:31:16 +0100
 Subject: [PATCH 13/15] Add nested array support for array<array<T>> syntax
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 - Parser: Handle >> (T_SR) token in nested array type declarations
   Supports up to 4 levels of nesting (array<array<array<array<T>>>>)
@@ -1678,10 +1668,6 @@ Content-Transfer-Encoding: 8bit
   failing elements in nested arrays
 
 - Update README with comprehensive documentation of array<T> features
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  README.md                   | 72 +++++++++++++++++++++++++++++++++++++
  Zend/zend_compile.c         | 14 ++++++++
@@ -1928,22 +1914,15 @@ index f9a17d5b..2701f329 100644
 2.43.0
 
 
-From 35dadd834a6cc2693139a94be979a5971ede7744 Mon Sep 17 00:00:00 2001
+From dd378947825778b0a1e4f998faf9532384b1c2a8 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:56:37 +0100
 Subject: [PATCH 14/15] Add array<T> parameter type validation
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 - Add zend_verify_array_arg_element_types() for parameter validation
 - Add zend_verify_array_arg_element_type_error() for proper argument error messages
 - Update ZEND_RECV, ZEND_RECV_INIT, ZEND_RECV_VARIADIC handlers
 - Error messages now correctly show "Argument #N" instead of "Return value"
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_execute.c    | 101 +++++++++++++++++++++++++++++++++++++++++
  Zend/zend_execute.h    |   5 ++
@@ -2206,14 +2185,11 @@ s7=ck3!-(Pd_V0(B^t=;Z&M1dr7>5anz$8q;G|WI0W+BFu!?+{+4ahycP5=M^
 2.43.0
 
 
-From ed6d60eb5222c487f854c5825006f2c1c1a79e46 Mon Sep 17 00:00:00 2001
+From 1f7ff3ec718c1fdfeed6e7475dd9530003834f36 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 16:29:07 +0100
 Subject: [PATCH 15/15] Add key types (array<K, V>) and property type support
  for strict_arrays
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 - Add array<K, V> syntax for specifying key types (int, string, or int|string)
 - Extend zend_typed_array_element structure with key_type field
@@ -2223,10 +2199,6 @@ Content-Transfer-Encoding: 8bit
   - Parameters
   - Properties
 - Add key type error messages
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_ast.h             |   1 +
  Zend/zend_compile.c         |  27 +++++

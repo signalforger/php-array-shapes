@@ -1,5 +1,5 @@
-From d9c9fc88554ad86aed63587c4034c114103021b2 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 620308331f30f41ce32cdc37a25287b4a4bc5962 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:32 +0100
 Subject: [PATCH 01/15] Add parser support for array<T> type syntax
 
@@ -40,8 +40,8 @@ index e4d61006..f9a17d5b 100644
 2.43.0
 
 
-From 1ed0765793e88bb38ec070ffee1a75873388e60c Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 3ff56469b5cce9e46eadd46a645c295514f44a71 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:43 +0100
 Subject: [PATCH 02/15] Add ZEND_AST_TYPE_ARRAY_OF AST node type
 
@@ -91,8 +91,8 @@ index fb48b187..12a66bf6 100644
 2.43.0
 
 
-From eba5d63214201ad1a8bcfd63ad3bffb8e204322b Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 7085586ffff8d0a1225d8ae52262c07b85fc39b5 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:53 +0100
 Subject: [PATCH 03/15] Add ZEND_TYPE_HAS_ARRAY_ELEMENT macro for array<T>
  detection
@@ -130,8 +130,8 @@ index a3d3e4da..a2f193af 100644
 2.43.0
 
 
-From 9c3d995f4b79d4d66c68946bbb59f2ce8c72d232 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From c3e46bd1badb6d84f46fb5ad422d8c7c4ad6485b Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:05 +0100
 Subject: [PATCH 04/15] Add strict_arrays directive and array element type
  structures
@@ -207,8 +207,8 @@ index c07fa9bf..3d0780cf 100644
 2.43.0
 
 
-From ea6b9a5b7e4a5612ce3c52f223db667951ff66f0 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 3ef5c87ebce71258c7569ad789232d4182157ab3 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:20 +0100
 Subject: [PATCH 05/15] Implement array<T> type compilation and strict_arrays
  directive
@@ -336,8 +336,8 @@ index 8be1ee14..71a3618e 100644
 2.43.0
 
 
-From d6ad7014af01cbd9f5901619d159441b255cee54 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From db849918f55f8753c7cdf03fce7ae145d548af57 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:31 +0100
 Subject: [PATCH 06/15] Declare array element type validation functions
 
@@ -375,8 +375,8 @@ index c08adf2a..73f403ad 100644
 2.43.0
 
 
-From ce808493f4a1a2b766cb85bd42433d0e2e5f43b7 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From f7c4fefa99465a9e56c742e549db6537778e5e71 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:42 +0100
 Subject: [PATCH 07/15] Implement runtime array element type validation
 
@@ -504,8 +504,8 @@ index 5665cc0c..84aecb03 100644
 2.43.0
 
 
-From cc0264d68b811f67b06248da6aeb0ad924118a00 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From e76b5335dafd309a5ef57abe528d1a9f96e0275d Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:59 +0100
 Subject: [PATCH 08/15] Integrate array<T> validation in VERIFY_RETURN_TYPE
  opcode
@@ -554,8 +554,8 @@ index 90247b3c..fee38710 100644
 2.43.0
 
 
-From c5d667e3ddb7a5dee612ca8fff1ee46ed4aef8fd Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From a0d62e871dbd40509cff22c53692bf25bdebc510 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:59:10 +0100
 Subject: [PATCH 09/15] Regenerate VM executor with array<T> validation support
 
@@ -606,8 +606,8 @@ zG}f#gsA0`oOFaQmP$0%y>dC_PUXO+t;WV6qI3!>kl8}NlOu!_Z1r^axeX9Qj$JQXb
 2.43.0
 
 
-From 72210b0a6fa2630eaa55c4e0d4e7fbd027c90900 Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 08dd8deb20bc445bfb69c76f13652e40aced7bd2 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 16:17:28 +0100
 Subject: [PATCH 10/15] Optimize array element type validation for
  declare(strict_arrays=1)
@@ -862,8 +862,8 @@ index 84aecb03..d8f1c07b 100644
 2.43.0
 
 
-From bc2ca7a201e0dc395f1db3137d4cb1b4af2681aa Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 41ea44a33db598810d0d93e47b70eacc36854441 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 16:35:01 +0100
 Subject: [PATCH 11/15] Add comprehensive performance optimizations for
  array<T> validation
@@ -1233,8 +1233,8 @@ index a2f193af..18a0d16b 100644
 2.43.0
 
 
-From 9b435a954691b20fbef02879f47c534aabccd00d Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 5cd658a72abcf409ab26fceb09668992b148b35a Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 12:14:32 +0100
 Subject: [PATCH 12/15] Add union type support for array<T> element types
 MIME-Version: 1.0
@@ -1657,8 +1657,8 @@ index 26a302e4..06dc61a2 100644
 2.43.0
 
 
-From e6d7f86b4308882e0393add90654650f673201be Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 4e4ad7d3e403f1cacb152fb47bc2c8fdff3a29bf Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:31:16 +0100
 Subject: [PATCH 13/15] Add nested array support for array<array<T>> syntax
 MIME-Version: 1.0
@@ -1928,8 +1928,8 @@ index f9a17d5b..2701f329 100644
 2.43.0
 
 
-From d3bf8ead9413d9a009c6fd29d001ba1400384c2b Mon Sep 17 00:00:00 2001
-From: signalforger <signaforger@signalforge.eu>
+From 35dadd834a6cc2693139a94be979a5971ede7744 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:56:37 +0100
 Subject: [PATCH 14/15] Add array<T> parameter type validation
 MIME-Version: 1.0
@@ -2206,8 +2206,8 @@ s7=ck3!-(Pd_V0(B^t=;Z&M1dr7>5anz$8q;G|WI0W+BFu!?+{+4ahycP5=M^
 2.43.0
 
 
-From 3307bf42d1167afbddf8d18cc7c0ab30e983c347 Mon Sep 17 00:00:00 2001
-From: Nikola Kovacs <nikola@signalforger.com>
+From ed6d60eb5222c487f854c5825006f2c1c1a79e46 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 16:29:07 +0100
 Subject: [PATCH 15/15] Add key types (array<K, V>) and property type support
  for strict_arrays

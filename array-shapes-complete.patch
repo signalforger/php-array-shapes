@@ -112,7 +112,7 @@ index fb48b187..5b60d0df 100644
  	ZEND_AST_STATIC_PROP,
  	ZEND_AST_CALL,
 diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
-index 8be1ee14..52c80623 100644
+index 8be1ee14..cf995f7d 100644
 --- a/Zend/zend_compile.c
 +++ b/Zend/zend_compile.c
 @@ -2617,6 +2617,83 @@ static void zend_compile_memoized_expr(znode *result, zend_ast *expr) /* {{{ */
@@ -199,7 +199,7 @@ index 8be1ee14..52c80623 100644
  static void zend_emit_return_type_check(
  		znode *expr, zend_arg_info *return_info, bool implicit) /* {{{ */
  {
-@@ -2669,8 +2746,20 @@ static void zend_emit_return_type_check(
+@@ -2669,8 +2746,21 @@ static void zend_emit_return_type_check(
  		}
  
  		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
@@ -210,7 +210,8 @@ index 8be1ee14..52c80623 100644
 +				return;
 +			}
 +			/* Escape analysis: if constant array elements all match the type, skip runtime check */
-+			if (Z_TYPE(expr->u.constant) == IS_ARRAY) {
++			/* Note: Only apply escape analysis to array<T> types, not array shapes */
++			if (Z_TYPE(expr->u.constant) == IS_ARRAY && ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
 +				const zend_typed_array_element *elem_type = ZEND_TYPED_ARRAY_ELEMENT(type);
 +				if (elem_type) {
 +					/* Try to verify at compile time (works for primitive types and unions of primitives) */
@@ -222,7 +223,7 @@ index 8be1ee14..52c80623 100644
  		}
  
  		opline = zend_emit_op(NULL, ZEND_VERIFY_RETURN_TYPE, expr, NULL);
-@@ -7028,6 +7117,29 @@ static void zend_compile_declare(zend_ast *ast) /* {{{ */
+@@ -7028,6 +7118,29 @@ static void zend_compile_declare(zend_ast *ast) /* {{{ */
  				CG(active_op_array)->fn_flags |= ZEND_ACC_STRICT_TYPES;
  			}
  
@@ -252,7 +253,7 @@ index 8be1ee14..52c80623 100644
  		} else {
  			zend_error(E_COMPILE_WARNING, "Unsupported declare '%s'", ZSTR_VAL(name));
  		}
-@@ -7076,6 +7188,9 @@ ZEND_API void zend_set_function_arg_flags(zend_function *func) /* {{{ */
+@@ -7076,6 +7189,9 @@ ZEND_API void zend_set_function_arg_flags(zend_function *func) /* {{{ */
  }
  /* }}} */
  
@@ -262,7 +263,7 @@ index 8be1ee14..52c80623 100644
  static zend_type zend_compile_single_typename(zend_ast *ast)
  {
  	ZEND_ASSERT(!(ast->attr & ZEND_TYPE_NULLABLE));
-@@ -7086,6 +7201,80 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+@@ -7086,6 +7202,80 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
  		}
  
  		return (zend_type) ZEND_TYPE_INIT_CODE(ast->attr, 0, 0);
@@ -343,7 +344,7 @@ index 8be1ee14..52c80623 100644
  	} else {
  		zend_string *type_name = zend_ast_get_str(ast);
  		uint8_t type_code = zend_lookup_builtin_type_by_name(type_name);
-@@ -8460,6 +8649,7 @@ static zend_op_array *zend_compile_func_decl_ex(
+@@ -8460,6 +8650,7 @@ static zend_op_array *zend_compile_func_decl_ex(
  	}
  
  	op_array->fn_flags |= (orig_op_array->fn_flags & ZEND_ACC_STRICT_TYPES);

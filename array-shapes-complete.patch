@@ -1,0 +1,4239 @@
+From 19af69da6325cec7a709e7548873dc055f9c0681 Mon Sep 17 00:00:00 2001
+From: signalforger <signalforger@signalforge.eu>
+Date: Sun, 28 Dec 2025 20:07:46 +0100
+Subject: [PATCH] Add array shape types (array{key: type}) with reflection
+ support
+
+This commit adds support for array shape return types with the following features:
+
+Array Shape Syntax:
+- Basic shapes: array{key: type}
+- Optional keys: array{key?: type}
+- Nullable types: array{key: ?type}
+- Union types: array{key: int|string}
+- Nested shapes: array{user: array{id: int}}
+
+Implementation:
+- Lexer: T_ARRAY_SHAPE_START token for "array{" syntax
+- Parser: array_shape_type rules for parsing shape definitions
+- Compiler: zend_array_shape and zend_array_shape_element structures
+- Runtime: zend_verify_array_shape() for validation with declare(strict_arrays=1)
+- VM: Integration in VERIFY_RETURN_TYPE opcode
+
+Reflection API:
+- ReflectionArrayShapeType class extending ReflectionType
+  - getElements(): array - returns array of ReflectionArrayShapeElement
+  - getElementCount(): int - total number of elements
+  - getRequiredElementCount(): int - non-optional elements count
+- ReflectionArrayShapeElement class
+  - getName(): string - key name
+  - getType(): ReflectionType - element's type
+  - isOptional(): bool - whether key is optional
+
+Examples:
+- Comprehensive examples in examples/array-shapes/ covering all features
+---
+ Zend/zend_compile.c                           |  39 +-
+ Zend/zend_compile.h                           |  22 +
+ Zend/zend_execute.c                           |  75 +++
+ Zend/zend_execute.h                           |   4 +
+ Zend/zend_language_parser.y                   |  21 +
+ Zend/zend_language_scanner.l                  |   7 +
+ Zend/zend_types.h                             |   6 +-
+ Zend/zend_vm_def.h                            |  22 +
+ Zend/zend_vm_execute.h                        | Bin 4201029 -> 4205997 bytes
+ examples/array-shapes/01-basic-shapes.php     | 123 ++++
+ examples/array-shapes/02-optional-keys.php    | 199 ++++++
+ examples/array-shapes/03-nested-shapes.php    | 272 ++++++++
+ .../04-union-and-nullable-types.php           | 265 ++++++++
+ .../05-shapes-with-typed-arrays.php           | 290 +++++++++
+ .../06-classes-and-interfaces.php             | 353 +++++++++++
+ .../07-closures-and-callables.php             | 294 +++++++++
+ examples/array-shapes/08-reflection-api.php   | 331 ++++++++++
+ .../array-shapes/09-validation-and-errors.php | 360 +++++++++++
+ .../array-shapes/10-real-world-patterns.php   | 590 ++++++++++++++++++
+ examples/array-shapes/README.md               | 250 ++++++++
+ ext/reflection/php_reflection.c               | 216 ++++++-
+ ext/reflection/php_reflection.h               |   1 +
+ ext/reflection/php_reflection.stub.php        |  38 ++
+ ext/reflection/php_reflection_arginfo.h       | Bin 111308 -> 115195 bytes
+ .../ReflectionExtension_getClasses_basic.phpt |  17 +-
+ 25 files changed, 3787 insertions(+), 8 deletions(-)
+ create mode 100644 examples/array-shapes/01-basic-shapes.php
+ create mode 100644 examples/array-shapes/02-optional-keys.php
+ create mode 100644 examples/array-shapes/03-nested-shapes.php
+ create mode 100644 examples/array-shapes/04-union-and-nullable-types.php
+ create mode 100644 examples/array-shapes/05-shapes-with-typed-arrays.php
+ create mode 100644 examples/array-shapes/06-classes-and-interfaces.php
+ create mode 100644 examples/array-shapes/07-closures-and-callables.php
+ create mode 100644 examples/array-shapes/08-reflection-api.php
+ create mode 100644 examples/array-shapes/09-validation-and-errors.php
+ create mode 100644 examples/array-shapes/10-real-world-patterns.php
+ create mode 100644 examples/array-shapes/README.md
+
+diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
+index a4965421..52c80623 100644
+--- a/Zend/zend_compile.c
++++ b/Zend/zend_compile.c
+@@ -2746,8 +2746,8 @@ static void zend_emit_return_type_check(
+ 		}
+ 
+ 		if (expr && expr->op_type == IS_CONST && ZEND_TYPE_CONTAINS_CODE(type, Z_TYPE(expr->u.constant))) {
+-			/* we don't need run-time check, unless we have array element type info to validate */
+-			if (!ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
++			/* we don't need run-time check, unless we have array element type info or shape to validate */
++			if (!ZEND_TYPE_HAS_ARRAY_ELEMENT(type) && !ZEND_TYPE_HAS_ARRAY_SHAPE(type)) {
+ 				return;
+ 			}
+ 			/* Escape analysis: if constant array elements all match the type, skip runtime check */
+@@ -7241,7 +7241,40 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+ 		type.ptr = elem_type;
+ 		return type;
+ 	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_SHAPE) {
+-		return (zend_type) ZEND_TYPE_INIT_CODE(IS_ARRAY, 0, 0);
++		/* array{key: type, key?: type, ...} syntax */
++		zend_ast *element_list = ast->child[0];
++		uint32_t num_elements = element_list ? zend_ast_get_list(element_list)->children : 0;
++		uint32_t num_required = 0;
++
++		/* Allocate shape structure with flexible array member */
++		size_t shape_size = sizeof(zend_array_shape) + num_elements * sizeof(zend_array_shape_element);
++		zend_array_shape *shape = zend_arena_alloc(&CG(arena), shape_size);
++		shape->num_elements = num_elements;
++
++		/* Compile each shape element */
++		if (element_list) {
++			zend_ast_list *list = zend_ast_get_list(element_list);
++			for (uint32_t i = 0; i < num_elements; i++) {
++				zend_ast *elem_ast = list->child[i];
++				zend_ast *key_ast = elem_ast->child[0];
++				zend_ast *type_ast = elem_ast->child[1];
++				bool is_optional = (elem_ast->attr != 0);
++
++				shape->elements[i].key = zend_string_copy(zend_ast_get_str(key_ast));
++				shape->elements[i].type = zend_compile_typename(type_ast);
++				shape->elements[i].is_optional = is_optional;
++
++				if (!is_optional) {
++					num_required++;
++				}
++			}
++		}
++		shape->num_required = num_required;
++
++		zend_type type;
++		type.type_mask = (1u << IS_ARRAY) | _ZEND_TYPE_ARRAY_SHAPE_BIT;
++		type.ptr = shape;
++		return type;
+ 	} else {
+ 		zend_string *type_name = zend_ast_get_str(ast);
+ 		uint8_t type_code = zend_lookup_builtin_type_by_name(type_name);
+diff --git a/Zend/zend_compile.h b/Zend/zend_compile.h
+index 8e0fe97f..3bb612c8 100644
+--- a/Zend/zend_compile.h
++++ b/Zend/zend_compile.h
+@@ -125,6 +125,28 @@ typedef struct _zend_typed_array_element {
+ 	(ZEND_TYPE_IS_ONLY_MASK((elem)->element_type) ? \
+ 		(uint8_t)ZEND_TYPE_PURE_MASK((elem)->element_type) : 0)
+ 
++/* Array shape element for array{key: type, key?: type} syntax */
++typedef struct _zend_array_shape_element {
++	zend_string *key;        /* Key name */
++	zend_type type;          /* Value type */
++	bool is_optional;        /* Whether this key is optional (key?: type) */
++} zend_array_shape_element;
++
++/* Array shape info for array{...} syntax */
++typedef struct _zend_array_shape {
++	uint32_t num_elements;               /* Number of shape elements */
++	uint32_t num_required;               /* Number of required (non-optional) elements */
++	zend_array_shape_element elements[]; /* Flexible array member */
++} zend_array_shape;
++
++/* Check if type has array shape */
++#define ZEND_TYPE_HAS_ARRAY_SHAPE(t) \
++	(((t).type_mask & _ZEND_TYPE_ARRAY_SHAPE_BIT) != 0)
++
++/* Get array shape from type */
++#define ZEND_ARRAY_SHAPE(t) \
++	((zend_array_shape *) (t).ptr)
++
+ /* Compilation context that is different for each file, but shared between op arrays. */
+ typedef struct _zend_file_context {
+ 	zend_declarables declarables;
+diff --git a/Zend/zend_execute.c b/Zend/zend_execute.c
+index ad18d7e5..b7844638 100644
+--- a/Zend/zend_execute.c
++++ b/Zend/zend_execute.c
+@@ -2256,6 +2256,81 @@ ZEND_API bool zend_verify_array_prop_element_types(
+ 	return false;
+ }
+ 
++/* Validate array against shape definition (array{key: type, key?: type}) */
++ZEND_API bool zend_verify_array_shape(
++	const zend_function *zf, zval *arr, const zend_array_shape *shape)
++{
++	HashTable *ht = Z_ARRVAL_P(arr);
++
++	/* Check each defined key in the shape */
++	for (uint32_t i = 0; i < shape->num_elements; i++) {
++		const zend_array_shape_element *elem = &shape->elements[i];
++		zval *val = zend_hash_find(ht, elem->key);
++
++		if (val == NULL) {
++			/* Key not present - error if required */
++			if (!elem->is_optional) {
++				zend_type_error("%s%s%s(): Return value must be of type array{%s: ...}, missing required key \"%s\"",
++					zf->common.scope ? ZSTR_VAL(zf->common.scope->name) : "",
++					zf->common.scope ? "::" : "",
++					ZSTR_VAL(zf->common.function_name),
++					ZSTR_VAL(elem->key),
++					ZSTR_VAL(elem->key));
++				return false;
++			}
++			continue;
++		}
++
++		/* Check value type */
++		if (!zend_check_type(&elem->type, val, NULL, 0, false)) {
++			zend_string *expected = zend_type_to_string(elem->type);
++			zend_type_error("%s%s%s(): Return value key \"%s\" must be of type %s, %s given",
++				zf->common.scope ? ZSTR_VAL(zf->common.scope->name) : "",
++				zf->common.scope ? "::" : "",
++				ZSTR_VAL(zf->common.function_name),
++				ZSTR_VAL(elem->key),
++				ZSTR_VAL(expected),
++				zend_zval_value_name(val));
++			zend_string_release(expected);
++			return false;
++		}
++	}
++
++	return true;
++}
++
++/* Validate array shape for function argument */
++ZEND_API bool zend_verify_array_arg_shape(
++	uint32_t arg_num, zval *arr, const zend_array_shape *shape)
++{
++	HashTable *ht = Z_ARRVAL_P(arr);
++
++	/* Check each defined key in the shape */
++	for (uint32_t i = 0; i < shape->num_elements; i++) {
++		const zend_array_shape_element *elem = &shape->elements[i];
++		zval *val = zend_hash_find(ht, elem->key);
++
++		if (val == NULL) {
++			if (!elem->is_optional) {
++				zend_type_error("Argument #%u must be of type array{%s: ...}, missing required key \"%s\"",
++					arg_num, ZSTR_VAL(elem->key), ZSTR_VAL(elem->key));
++				return false;
++			}
++			continue;
++		}
++
++		if (!zend_check_type(&elem->type, val, NULL, 0, false)) {
++			zend_string *expected = zend_type_to_string(elem->type);
++			zend_type_error("Argument #%u key \"%s\" must be of type %s, %s given",
++				arg_num, ZSTR_VAL(elem->key), ZSTR_VAL(expected), zend_zval_value_name(val));
++			zend_string_release(expected);
++			return false;
++		}
++	}
++
++	return true;
++}
++
+ ZEND_API ZEND_COLD void zend_verify_never_error(const zend_function *zf)
+ {
+ 	zend_string *func_name = get_function_or_method_name(zf);
+diff --git a/Zend/zend_execute.h b/Zend/zend_execute.h
+index 2ac88b88..fda9b47c 100644
+--- a/Zend/zend_execute.h
++++ b/Zend/zend_execute.h
+@@ -126,6 +126,10 @@ ZEND_API ZEND_COLD void zend_verify_array_arg_key_type_error(
+ 		uint32_t arg_num, const char *expected_key_type, const char *actual_key_type);
+ ZEND_API ZEND_COLD void zend_verify_array_prop_key_type_error(
+ 		const zend_property_info *info, const char *expected_key_type, const char *actual_key_type);
++ZEND_API bool zend_verify_array_shape(
++		const zend_function *zf, zval *arr, const zend_array_shape *shape);
++ZEND_API bool zend_verify_array_arg_shape(
++		uint32_t arg_num, zval *arr, const zend_array_shape *shape);
+ ZEND_API ZEND_COLD void zend_verify_never_error(
+ 		const zend_function *zf);
+ ZEND_API bool zend_verify_ref_array_assignable(zend_reference *ref);
+diff --git a/Zend/zend_language_parser.y b/Zend/zend_language_parser.y
+index 6a872f54..83b61b1d 100644
+--- a/Zend/zend_language_parser.y
++++ b/Zend/zend_language_parser.y
+@@ -87,6 +87,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ %precedence T_ELSEIF
+ %precedence T_ELSE
+ 
++
+ %token <ast> T_LNUMBER   "integer"
+ %token <ast> T_DNUMBER   "floating-point number"
+ %token <ast> T_STRING    "identifier"
+@@ -173,6 +174,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ %token <ident> T_NAMESPACE     "'namespace'"
+ %token <ident> T_LIST            "'list'"
+ %token <ident> T_ARRAY           "'array'"
++%token T_ARRAY_SHAPE_START       "'array{'"
+ %token <ident> T_CALLABLE        "'callable'"
+ %token <ident> T_LINE            "'__LINE__'"
+ %token <ident> T_FILE            "'__FILE__'"
+@@ -280,6 +282,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
+ %type <ast> array_pair non_empty_array_pair_list array_pair_list possible_array_pair
+ %type <ast> isset_variable type return_type type_expr type_without_static
+ %type <ast> identifier type_expr_without_static union_type_without_static_element union_type_without_static intersection_type_without_static
++%type <ast> shape_element_list shape_element
+ %type <ast> inline_function union_type_element union_type intersection_type
+ %type <ast> attributed_statement attributed_top_statement attributed_class_statement attributed_parameter
+ %type <ast> attribute_decl attribute attributes attribute_group namespace_declaration_name
+@@ -890,6 +893,24 @@ type_without_static:
+ 				zend_ast_create(ZEND_AST_TYPE_ARRAY_OF,
+ 					zend_ast_create(ZEND_AST_TYPE_ARRAY_OF,
+ 						zend_ast_create(ZEND_AST_TYPE_ARRAY_OF, $9)))); }
++	|	T_ARRAY_SHAPE_START shape_element_list '}'
++			{ $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_SHAPE, $2); }
++	|	T_ARRAY_SHAPE_START '}'
++			{ $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_SHAPE, NULL); }
++;
++
++shape_element_list:
++		shape_element
++			{ $$ = zend_ast_create_list(1, ZEND_AST_SHAPE_ELEMENT_LIST, $1); }
++	|	shape_element_list ',' shape_element
++			{ $$ = zend_ast_list_add($1, $3); }
++;
++
++shape_element:
++		T_STRING ':' type_expr
++			{ $$ = zend_ast_create_ex(ZEND_AST_SHAPE_ELEMENT, 0, $1, $3); }
++	|	T_STRING '?' ':' type_expr
++			{ $$ = zend_ast_create_ex(ZEND_AST_SHAPE_ELEMENT, 1, $1, $4); }
+ ;
+ 
+ union_type_without_static_element:
+diff --git a/Zend/zend_language_scanner.l b/Zend/zend_language_scanner.l
+index 3ecb2f8d..7ca79ab9 100644
+--- a/Zend/zend_language_scanner.l
++++ b/Zend/zend_language_scanner.l
+@@ -1814,6 +1814,13 @@ OPTIONAL_WHITESPACE_OR_COMMENTS ({WHITESPACE}|{MULTI_LINE_COMMENT}|{SINGLE_LINE_
+ 	RETURN_TOKEN_WITH_IDENT(T_LIST);
+ }
+ 
++<ST_IN_SCRIPTING>"array{" {
++	/* Return T_ARRAY_SHAPE_START for array shape syntax (no whitespace between array and {)
++	 * We must call enter_nesting since we consumed the { character */
++	enter_nesting('{');
++	RETURN_TOKEN(T_ARRAY_SHAPE_START);
++}
++
+ <ST_IN_SCRIPTING>"array" {
+ 	RETURN_TOKEN_WITH_IDENT(T_ARRAY);
+ }
+diff --git a/Zend/zend_types.h b/Zend/zend_types.h
+index 18a0d16b..9f79a3cb 100644
+--- a/Zend/zend_types.h
++++ b/Zend/zend_types.h
+@@ -157,7 +157,9 @@ typedef struct {
+ #define _ZEND_TYPE_INTERSECTION_BIT (1u << 19)
+ /* Whether the type is a union type */
+ #define _ZEND_TYPE_UNION_BIT (1u << 18)
+-/* Type mask excluding the flags above. */
++/* Whether the type is an array shape (array{key: type}) */
++#define _ZEND_TYPE_ARRAY_SHAPE_BIT (1u << 30)
++/* Type mask for MAY_BE_* type bits only (bits 0-17, including IS_NEVER) */
+ #define _ZEND_TYPE_MAY_BE_MASK ((1u << 18) - 1)
+ /* Must have same value as MAY_BE_NULL */
+ #define _ZEND_TYPE_NULLABLE_BIT 0x2u
+@@ -192,7 +194,7 @@ typedef struct {
+ 	((((t).type_mask) & _ZEND_TYPE_ARENA_BIT) != 0)
+ 
+ #define ZEND_TYPE_HAS_ARRAY_ELEMENT(t) \
+-	((((t).type_mask) & (1u << IS_ARRAY)) != 0 && (t).ptr != NULL && !ZEND_TYPE_IS_COMPLEX(t))
++	((((t).type_mask) & (1u << IS_ARRAY)) != 0 && (t).ptr != NULL && !ZEND_TYPE_IS_COMPLEX(t) && !((t).type_mask & _ZEND_TYPE_ARRAY_SHAPE_BIT))
+ 
+ #define ZEND_TYPE_IS_ONLY_MASK(t) \
+ 	(ZEND_TYPE_IS_SET(t) && (t).ptr == NULL)
+diff --git a/Zend/zend_vm_def.h b/Zend/zend_vm_def.h
+index 11924175..0982bd4c 100644
+--- a/Zend/zend_vm_def.h
++++ b/Zend/zend_vm_def.h
+@@ -4462,6 +4462,15 @@ ZEND_VM_COLD_CONST_HANDLER(124, ZEND_VERIFY_RETURN_TYPE, CONST|TMP|VAR|UNUSED|CV
+ 					HANDLE_EXCEPTION();
+ 				}
+ 			}
++			/* Check array shape if strict_arrays is enabled and we have array{...} type info */
++			if (EX_USES_STRICT_ARRAYS() && Z_TYPE_P(retval_ptr) == IS_ARRAY && ZEND_TYPE_HAS_ARRAY_SHAPE(ret_info->type)) {
++				SAVE_OPLINE();
++				zend_array_shape *shape = ZEND_ARRAY_SHAPE(ret_info->type);
++				if (!zend_verify_array_shape(EX(func), retval_ptr, shape)) {
++					FREE_OP1();
++					HANDLE_EXCEPTION();
++				}
++			}
+ 			ZEND_VM_NEXT_OPCODE();
+ 		}
+ 
+@@ -5699,6 +5708,12 @@ ZEND_VM_HELPER(zend_verify_recv_arg_type_helper, ANY, ANY, zval *op_1)
+ 				HANDLE_EXCEPTION();
+ 			}
+ 		}
++		if (ZEND_TYPE_HAS_ARRAY_SHAPE(arg_info->type)) {
++			zend_array_shape *shape = ZEND_ARRAY_SHAPE(arg_info->type);
++			if (!zend_verify_array_arg_shape(opline->op1.num, op_1, shape)) {
++				HANDLE_EXCEPTION();
++			}
++		}
+ 	}
+ 
+ 	ZEND_VM_NEXT_OPCODE();
+@@ -5730,6 +5745,13 @@ ZEND_VM_HOT_HANDLER(63, ZEND_RECV, NUM, UNUSED)
+ 				HANDLE_EXCEPTION();
+ 			}
+ 		}
++		if (ZEND_TYPE_HAS_ARRAY_SHAPE(arg_info->type)) {
++			SAVE_OPLINE();
++			zend_array_shape *shape = ZEND_ARRAY_SHAPE(arg_info->type);
++			if (!zend_verify_array_arg_shape(arg_num, param, shape)) {
++				HANDLE_EXCEPTION();
++			}
++		}
+ 	}
+ 
+ 	ZEND_VM_NEXT_OPCODE();
+diff --git a/Zend/zend_vm_execute.h b/Zend/zend_vm_execute.h
+index 2c08976e3927c4a8c47bea29091af393f2bd5189..8e4f5427b4d4c1c4d2c83120a6897ba198bc7468 100644
+GIT binary patch
+delta 2100
+zcmciDOH30%7zgm|w%c}>z6ILa7D_2)g;Ef!6beXvL<Fe?0t5|dOJd~WBNz`zlq%XK
+zc(5Sy=|wnr)KDW~;=3L+nyBgBM0)V#!4MOTsTlkyoQNixxE_AHlkDuyH?#YneLf$h
+z@4SoB(Ru1xD@?RdCZ@C5AKVLfTPRCOWN<Jt6go8!IeElZwsvZ;9oie%6Y_U-_<KWZ
+zUHuwM9++Dxvn<<%hd?W3kYF2hoTYQ})o!?Sux2YHK2SQC?KPi=V{TbFSvo-FKHM;(
+z0bFw0@VCR7)`pD?9t|BoeavM$85xY=X}y3m5O1dSaGkRlg%JgfBuGj|6inC!OuJFT
+zWbcQfcB7jacDvnYVRlqKu)Yq@+Kp9zSkRNhj*9hXO?a5>3Xo`J;ed2Hs5C&@ppZkN
+zpk4+cy|)yCzCs5HFWV^!(p}YkM0-Wzq#(S>TT1ZK93`Y17$ie-q(Cf5H*hz3v1^9Z
+zMfD|k-Op(t_|#+}OXqkZ0c}pM7phKhW|*DiY9RHFW{5W8SfEMh2WzJwc{8sCnlh{!
+zQWxrT;r82F)9OSV6fAW*?@#wt=ac9%+eyP>W33EkCOI$BuCO*KdHa~p(1K=|Lpex^
+zR75kZF5<+Vsem&@8l)wui@KRNVvh*;J#@iswpb16U3xvF9%;DM1%4p88h_!3rZ&A?
+zNOtSdCX|cvP(Dd^8$N&kAH{XUn~w|&wtdFzi~lIWZ`Ty-F~)lExOt(+Tz608%nG<^
+zAS)^$I<9c0MC^GB_)?G!6(Kt+#^5@>ioQMkI%<g<d=1#9tV$sncAygEM5QDd=08})
+zUJguxdRhwFDXSjhJDoXD^%4^sU*r#hwqMD@m0IT8YN#)h@MX0WcZO`oJx+aWjE{|N
+ziH(&ljFtDl5WCFZM+urfZLSB~5HAPJQUL__yWB#i!-Xo)YP%9ukxa+dTVMW1of}dm
+zk-~e6kA>N;MjbS**tbEVN2!9qD8G{Z89+RsR0(r|YP5~a1w1O>hS2?!UvmH!hdgb9
+dd)$MzqaCOQc~LE@Lq1fG8c-u~kMA_Ze*%A&&hY>M
+
+delta 751
+zcmajbPiT^H7zc1(^>zBHudk-*)O`J)ZJK{_W@&2dGN{c{utp9`aWGcCj6qj#KiJ45
+zX%FEc4_yW;gbjW~hjr=DM$CIqo`PL!hk`C+JvuNtb@;%K=XriVp5OQN=eq2}Ze3R2
+zWuD)H<KJEd9F*gMXCJ4*#mQLu^)_?zZd9Ko0w+Uqq@V)Fu7`-2Vv!P!Ar(?nF~z-%
+z0e1X!W!a}zY(ABbLv5N>LFpi?fzEx-2gh=g6?!LXAFZ{6TMWFBd`Dz&l|ve&MLN2-
+z%2zGJhsfy$kMu~OryB;_r(qfFWll$W3r2JfnUEQsM;7QUSPg@*0O-E6>dk$tkqQ~{
+zryPVP?*y@(G0=RI&oR)P5sUPFH}Xw}tD52AR!|M~Sb73V#XuGcwU8D1_q2z@Ilws`
+zG|O5Zq_>d>DJ@yiII_{wlD)A#iff*P%?@+{IceA|+WZu^NhzRz<S>J4F6#zq$1w$x
+zU1cEkyog-LjXcOp>v^9sc=mq`lB_KIQ2<@UV1sJUS*y?pl0xGWnxKWo<cq^$c^D1F
+zXjBT2)@>T-&WFa}$D+{*-Ad>(VJjgNMuT$%MJZc}z4|q{{cmDQ1r%dR1LW7@c`7w|
+z{oll7a_Gm>O31CnZvwUi$ZeY~|A{PGjgx5g3XN71j^rpVH;51Hvyh%+1dt{@-ks(h
+z7t`vNX5bM?7~o5RF|~Skv(O_6JuJ5EkBP05KvO7*uA&sWhOVPD%Agx4OKqK8>&YMe
+C$q-8b
+
+diff --git a/examples/array-shapes/01-basic-shapes.php b/examples/array-shapes/01-basic-shapes.php
+new file mode 100644
+index 00000000..ded279f2
+--- /dev/null
++++ b/examples/array-shapes/01-basic-shapes.php
+@@ -0,0 +1,123 @@
++<?php
++/**
++ * Basic Array Shape Examples
++ *
++ * Array shapes define the structure of associative arrays with typed keys.
++ * Syntax: array{key: type, key2: type2, ...}
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// BASIC SHAPE WITH REQUIRED KEYS
++// =============================================================================
++
++/**
++ * Simple shape with two required keys
++ */
++function getPoint(): array{x: int, y: int} {
++    return ['x' => 10, 'y' => 20];
++}
++
++$point = getPoint();
++echo "Point: ({$point['x']}, {$point['y']})\n";
++
++
++/**
++ * Shape with different types
++ */
++function getUser(): array{id: int, name: string, balance: float, active: bool} {
++    return [
++        'id' => 1,
++        'name' => 'Alice',
++        'balance' => 100.50,
++        'active' => true
++    ];
++}
++
++$user = getUser();
++echo "User: {$user['name']} (ID: {$user['id']}, Balance: {$user['balance']}, Active: " . ($user['active'] ? 'yes' : 'no') . ")\n";
++
++
++// =============================================================================
++// SHAPES AS PARAMETER TYPES
++// =============================================================================
++
++/**
++ * Function accepting a shaped array as parameter
++ */
++function processOrder(array{product: string, quantity: int, price: float} $order): float {
++    return $order['quantity'] * $order['price'];
++}
++
++$total = processOrder(['product' => 'Widget', 'quantity' => 5, 'price' => 9.99]);
++echo "Order total: \${$total}\n";
++
++
++/**
++ * Function with both shaped parameter and return type
++ */
++function createInvoice(
++    array{customer: string, items: int} $order
++): array{invoice_id: string, customer: string, items: int, created: string} {
++    return [
++        'invoice_id' => uniqid('INV-'),
++        'customer' => $order['customer'],
++        'items' => $order['items'],
++        'created' => date('Y-m-d H:i:s')
++    ];
++}
++
++$invoice = createInvoice(['customer' => 'Acme Corp', 'items' => 3]);
++echo "Invoice: {$invoice['invoice_id']} for {$invoice['customer']}\n";
++
++
++// =============================================================================
++// SINGLE KEY SHAPES
++// =============================================================================
++
++/**
++ * Shape with just one key (useful for wrapper types)
++ */
++function wrapValue(): array{value: mixed} {
++    return ['value' => 'anything goes here'];
++}
++
++$wrapped = wrapValue();
++echo "Wrapped value: {$wrapped['value']}\n";
++
++
++// =============================================================================
++// SHAPES WITH MANY KEYS
++// =============================================================================
++
++/**
++ * Shape with many keys (complex data structure)
++ */
++function getFullProfile(): array{
++    id: int,
++    username: string,
++    email: string,
++    first_name: string,
++    last_name: string,
++    age: int,
++    verified: bool,
++    score: float
++} {
++    return [
++        'id' => 42,
++        'username' => 'johndoe',
++        'email' => 'john@example.com',
++        'first_name' => 'John',
++        'last_name' => 'Doe',
++        'age' => 30,
++        'verified' => true,
++        'score' => 95.5
++    ];
++}
++
++$profile = getFullProfile();
++echo "Profile: {$profile['first_name']} {$profile['last_name']} ({$profile['username']})\n";
++
++
++echo "\n--- All basic shape examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/02-optional-keys.php b/examples/array-shapes/02-optional-keys.php
+new file mode 100644
+index 00000000..190bcc81
+--- /dev/null
++++ b/examples/array-shapes/02-optional-keys.php
+@@ -0,0 +1,199 @@
++<?php
++/**
++ * Optional Keys in Array Shapes
++ *
++ * Optional keys are marked with a question mark after the key name: key?: type
++ * Optional keys don't need to be present in the returned array.
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// BASIC OPTIONAL KEYS
++// =============================================================================
++
++/**
++ * Shape with one required and one optional key
++ */
++function getUserBasic(): array{name: string, nickname?: string} {
++    // We can omit 'nickname' since it's optional
++    return ['name' => 'Alice'];
++}
++
++$user1 = getUserBasic();
++echo "User: {$user1['name']}, Nickname: " . ($user1['nickname'] ?? 'none') . "\n";
++
++
++/**
++ * Same shape, but this time including the optional key
++ */
++function getUserWithNickname(): array{name: string, nickname?: string} {
++    return ['name' => 'Bob', 'nickname' => 'Bobby'];
++}
++
++$user2 = getUserWithNickname();
++echo "User: {$user2['name']}, Nickname: {$user2['nickname']}\n";
++
++
++// =============================================================================
++// MULTIPLE OPTIONAL KEYS
++// =============================================================================
++
++/**
++ * Shape with multiple optional keys
++ */
++function getConfig(): array{
++    host: string,
++    port?: int,
++    timeout?: float,
++    ssl?: bool,
++    username?: string,
++    password?: string
++} {
++    // Only host is required, everything else is optional
++    return ['host' => 'localhost'];
++}
++
++/**
++ * Same shape with some optional keys filled
++ */
++function getSecureConfig(): array{
++    host: string,
++    port?: int,
++    timeout?: float,
++    ssl?: bool,
++    username?: string,
++    password?: string
++} {
++    return [
++        'host' => 'secure.example.com',
++        'port' => 443,
++        'ssl' => true,
++        'timeout' => 30.0
++    ];
++}
++
++$config1 = getConfig();
++$config2 = getSecureConfig();
++echo "Config 1 host: {$config1['host']}, port: " . ($config1['port'] ?? 'default') . "\n";
++echo "Config 2 host: {$config2['host']}, port: {$config2['port']}, ssl: " . ($config2['ssl'] ? 'yes' : 'no') . "\n";
++
++
++// =============================================================================
++// ALL OPTIONAL KEYS
++// =============================================================================
++
++/**
++ * Shape where all keys are optional (useful for options/settings)
++ */
++function getOptions(): array{
++    debug?: bool,
++    verbose?: bool,
++    color?: bool,
++    format?: string
++} {
++    // Can return empty array since all keys are optional
++    return [];
++}
++
++/**
++ * Same shape with all options set
++ */
++function getFullOptions(): array{
++    debug?: bool,
++    verbose?: bool,
++    color?: bool,
++    format?: string
++} {
++    return [
++        'debug' => true,
++        'verbose' => false,
++        'color' => true,
++        'format' => 'json'
++    ];
++}
++
++$opts1 = getOptions();
++$opts2 = getFullOptions();
++echo "Options 1 debug: " . (isset($opts1['debug']) ? ($opts1['debug'] ? 'yes' : 'no') : 'not set') . "\n";
++echo "Options 2 debug: " . ($opts2['debug'] ? 'yes' : 'no') . ", format: {$opts2['format']}\n";
++
++
++// =============================================================================
++// MIXED REQUIRED AND OPTIONAL
++// =============================================================================
++
++/**
++ * Real-world example: API response shape
++ */
++function getApiResponse(): array{
++    status: int,
++    message: string,
++    data?: array,
++    error?: string,
++    timestamp?: string
++} {
++    return [
++        'status' => 200,
++        'message' => 'Success',
++        'data' => ['items' => [1, 2, 3]],
++        'timestamp' => date('c')
++        // 'error' is intentionally omitted since this is a success response
++    ];
++}
++
++/**
++ * Error response using the same shape
++ */
++function getErrorResponse(): array{
++    status: int,
++    message: string,
++    data?: array,
++    error?: string,
++    timestamp?: string
++} {
++    return [
++        'status' => 500,
++        'message' => 'Internal Server Error',
++        'error' => 'Database connection failed'
++        // 'data' is omitted since this is an error
++    ];
++}
++
++$success = getApiResponse();
++$error = getErrorResponse();
++echo "Success response: status={$success['status']}, has data: " . (isset($success['data']) ? 'yes' : 'no') . "\n";
++echo "Error response: status={$error['status']}, error: {$error['error']}\n";
++
++
++// =============================================================================
++// OPTIONAL KEYS WITH DEFAULTS PATTERN
++// =============================================================================
++
++/**
++ * Function that merges defaults with optional shape keys
++ */
++function createWidget(array{
++    name: string,
++    width?: int,
++    height?: int,
++    color?: string,
++    visible?: bool
++} $config): array{name: string, width: int, height: int, color: string, visible: bool} {
++    // Merge with defaults
++    return [
++        'name' => $config['name'],
++        'width' => $config['width'] ?? 100,
++        'height' => $config['height'] ?? 50,
++        'color' => $config['color'] ?? 'blue',
++        'visible' => $config['visible'] ?? true
++    ];
++}
++
++$widget1 = createWidget(['name' => 'Button']);
++$widget2 = createWidget(['name' => 'Panel', 'width' => 200, 'color' => 'red']);
++echo "Widget 1: {$widget1['name']} ({$widget1['width']}x{$widget1['height']}) color={$widget1['color']}\n";
++echo "Widget 2: {$widget2['name']} ({$widget2['width']}x{$widget2['height']}) color={$widget2['color']}\n";
++
++
++echo "\n--- All optional key examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/03-nested-shapes.php b/examples/array-shapes/03-nested-shapes.php
+new file mode 100644
+index 00000000..86781e2d
+--- /dev/null
++++ b/examples/array-shapes/03-nested-shapes.php
+@@ -0,0 +1,272 @@
++<?php
++/**
++ * Nested Array Shapes
++ *
++ * Array shapes can be nested within each other to define complex structures.
++ * Syntax: array{key: array{nested_key: type}}
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// SIMPLE NESTING
++// =============================================================================
++
++/**
++ * Shape with one level of nesting
++ */
++function getUserWithAddress(): array{
++    name: string,
++    address: array{street: string, city: string}
++} {
++    return [
++        'name' => 'Alice',
++        'address' => [
++            'street' => '123 Main St',
++            'city' => 'Boston'
++        ]
++    ];
++}
++
++$user = getUserWithAddress();
++echo "User: {$user['name']}, Lives at: {$user['address']['street']}, {$user['address']['city']}\n";
++
++
++// =============================================================================
++// DEEP NESTING
++// =============================================================================
++
++/**
++ * Shape with multiple levels of nesting
++ */
++function getCompanyInfo(): array{
++    name: string,
++    headquarters: array{
++        address: array{
++            street: string,
++            city: string,
++            country: string
++        },
++        contact: array{
++            phone: string,
++            email: string
++        }
++    }
++} {
++    return [
++        'name' => 'Acme Corp',
++        'headquarters' => [
++            'address' => [
++                'street' => '456 Corporate Blvd',
++                'city' => 'New York',
++                'country' => 'USA'
++            ],
++            'contact' => [
++                'phone' => '+1-555-0123',
++                'email' => 'info@acme.com'
++            ]
++        ]
++    ];
++}
++
++$company = getCompanyInfo();
++echo "Company: {$company['name']}\n";
++echo "  Location: {$company['headquarters']['address']['city']}, {$company['headquarters']['address']['country']}\n";
++echo "  Contact: {$company['headquarters']['contact']['email']}\n";
++
++
++// =============================================================================
++// NESTED WITH OPTIONAL KEYS
++// =============================================================================
++
++/**
++ * Nested shapes with optional keys at various levels
++ */
++function getProfile(): array{
++    user: array{
++        id: int,
++        name: string,
++        email?: string
++    },
++    settings?: array{
++        theme?: string,
++        notifications?: bool
++    }
++} {
++    return [
++        'user' => [
++            'id' => 1,
++            'name' => 'Bob'
++            // email is optional
++        ]
++        // settings is optional
++    ];
++}
++
++/**
++ * Same shape with all optional keys filled
++ */
++function getFullProfile(): array{
++    user: array{
++        id: int,
++        name: string,
++        email?: string
++    },
++    settings?: array{
++        theme?: string,
++        notifications?: bool
++    }
++} {
++    return [
++        'user' => [
++            'id' => 2,
++            'name' => 'Carol',
++            'email' => 'carol@example.com'
++        ],
++        'settings' => [
++            'theme' => 'dark',
++            'notifications' => true
++        ]
++    ];
++}
++
++$profile1 = getProfile();
++$profile2 = getFullProfile();
++echo "Profile 1: {$profile1['user']['name']}, email: " . ($profile1['user']['email'] ?? 'not set') . "\n";
++echo "Profile 2: {$profile2['user']['name']}, theme: {$profile2['settings']['theme']}\n";
++
++
++// =============================================================================
++// MULTIPLE NESTED STRUCTURES
++// =============================================================================
++
++/**
++ * Shape with multiple nested structures at the same level
++ */
++function getOrder(): array{
++    order_id: string,
++    customer: array{name: string, email: string},
++    shipping: array{address: string, city: string},
++    billing: array{address: string, city: string},
++    items: array{count: int, total: float}
++} {
++    return [
++        'order_id' => 'ORD-001',
++        'customer' => ['name' => 'Dave', 'email' => 'dave@example.com'],
++        'shipping' => ['address' => '789 Ship Lane', 'city' => 'Portland'],
++        'billing' => ['address' => '789 Ship Lane', 'city' => 'Portland'],
++        'items' => ['count' => 3, 'total' => 149.99]
++    ];
++}
++
++$order = getOrder();
++echo "Order {$order['order_id']} for {$order['customer']['name']}\n";
++echo "  Ship to: {$order['shipping']['city']}\n";
++echo "  Total: \${$order['items']['total']} ({$order['items']['count']} items)\n";
++
++
++// =============================================================================
++// NESTED SHAPE AS PARAMETER
++// =============================================================================
++
++/**
++ * Function accepting nested shape as parameter
++ */
++function processPayment(array{
++    amount: float,
++    card: array{
++        number: string,
++        expiry: string,
++        cvv: string
++    },
++    billing: array{
++        name: string,
++        address: string
++    }
++} $payment): array{success: bool, transaction_id: string} {
++    // Simulate payment processing
++    return [
++        'success' => true,
++        'transaction_id' => 'TXN-' . substr(md5($payment['card']['number']), 0, 8)
++    ];
++}
++
++$result = processPayment([
++    'amount' => 99.99,
++    'card' => [
++        'number' => '4111111111111111',
++        'expiry' => '12/25',
++        'cvv' => '123'
++    ],
++    'billing' => [
++        'name' => 'Eve Smith',
++        'address' => '321 Pay St'
++    ]
++]);
++echo "Payment result: " . ($result['success'] ? 'Success' : 'Failed') . ", ID: {$result['transaction_id']}\n";
++
++
++// =============================================================================
++// DEEPLY NESTED REAL-WORLD EXAMPLE
++// =============================================================================
++
++/**
++ * Complex nested structure: API configuration
++ */
++function getApiConfig(): array{
++    api: array{
++        version: string,
++        endpoints: array{
++            base: string,
++            auth: string
++        }
++    },
++    auth: array{
++        type: string,
++        credentials: array{
++            key: string,
++            secret?: string
++        }
++    },
++    options: array{
++        timeout: int,
++        retry: array{
++            enabled: bool,
++            max_attempts: int
++        }
++    }
++} {
++    return [
++        'api' => [
++            'version' => 'v2',
++            'endpoints' => [
++                'base' => 'https://api.example.com',
++                'auth' => 'https://auth.example.com'
++            ]
++        ],
++        'auth' => [
++            'type' => 'api_key',
++            'credentials' => [
++                'key' => 'my-api-key'
++            ]
++        ],
++        'options' => [
++            'timeout' => 30,
++            'retry' => [
++                'enabled' => true,
++                'max_attempts' => 3
++            ]
++        ]
++    ];
++}
++
++$config = getApiConfig();
++echo "API Config:\n";
++echo "  Version: {$config['api']['version']}\n";
++echo "  Base URL: {$config['api']['endpoints']['base']}\n";
++echo "  Auth type: {$config['auth']['type']}\n";
++echo "  Timeout: {$config['options']['timeout']}s\n";
++echo "  Retry enabled: " . ($config['options']['retry']['enabled'] ? 'yes' : 'no') . "\n";
++
++
++echo "\n--- All nested shape examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/04-union-and-nullable-types.php b/examples/array-shapes/04-union-and-nullable-types.php
+new file mode 100644
+index 00000000..32dbf667
+--- /dev/null
++++ b/examples/array-shapes/04-union-and-nullable-types.php
+@@ -0,0 +1,265 @@
++<?php
++/**
++ * Union Types and Nullable Types in Array Shapes
++ *
++ * Shape values can use union types (type1|type2) and nullable types (?type).
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// UNION TYPES IN SHAPES
++// =============================================================================
++
++/**
++ * Shape with union type values
++ */
++function getFlexibleId(): array{id: int|string} {
++    return ['id' => 'ABC-123']; // Can be string
++}
++
++function getNumericId(): array{id: int|string} {
++    return ['id' => 42]; // Can also be int
++}
++
++$flex = getFlexibleId();
++$num = getNumericId();
++echo "Flexible ID: {$flex['id']} (type: " . gettype($flex['id']) . ")\n";
++echo "Numeric ID: {$num['id']} (type: " . gettype($num['id']) . ")\n";
++
++
++/**
++ * Multiple union types in a shape
++ */
++function getMixedData(): array{
++    value: int|float|string,
++    status: bool|string,
++    code: int|null
++} {
++    return [
++        'value' => 3.14,
++        'status' => 'active',
++        'code' => null
++    ];
++}
++
++$data = getMixedData();
++echo "Mixed data - value: {$data['value']}, status: {$data['status']}, code: " . ($data['code'] ?? 'null') . "\n";
++
++
++// =============================================================================
++// NULLABLE TYPES IN SHAPES
++// =============================================================================
++
++/**
++ * Shape with nullable type values using ? syntax
++ */
++function getUserWithOptionalEmail(): array{name: string, email: ?string} {
++    return [
++        'name' => 'Alice',
++        'email' => null // Explicitly null
++    ];
++}
++
++function getUserWithEmail(): array{name: string, email: ?string} {
++    return [
++        'name' => 'Bob',
++        'email' => 'bob@example.com'
++    ];
++}
++
++$user1 = getUserWithOptionalEmail();
++$user2 = getUserWithEmail();
++echo "User 1: {$user1['name']}, email: " . ($user1['email'] ?? 'null') . "\n";
++echo "User 2: {$user2['name']}, email: {$user2['email']}\n";
++
++
++/**
++ * Shape with multiple nullable types
++ */
++function getNullableConfig(): array{
++    host: string,
++    port: ?int,
++    timeout: ?float,
++    proxy: ?string
++} {
++    return [
++        'host' => 'localhost',
++        'port' => 8080,
++        'timeout' => null,
++        'proxy' => null
++    ];
++}
++
++$config = getNullableConfig();
++echo "Config - host: {$config['host']}, port: {$config['port']}, timeout: " . ($config['timeout'] ?? 'null') . "\n";
++
++
++// =============================================================================
++// COMBINING UNION AND NULLABLE
++// =============================================================================
++
++/**
++ * Nullable union types
++ */
++function getResult(): array{
++    success: bool,
++    data: string|int|null,
++    error: ?string
++} {
++    return [
++        'success' => true,
++        'data' => 42,
++        'error' => null
++    ];
++}
++
++function getErrorResult(): array{
++    success: bool,
++    data: string|int|null,
++    error: ?string
++} {
++    return [
++        'success' => false,
++        'data' => null,
++        'error' => 'Something went wrong'
++    ];
++}
++
++$success = getResult();
++$error = getErrorResult();
++echo "Success result - data: {$success['data']}\n";
++echo "Error result - error: {$error['error']}\n";
++
++
++// =============================================================================
++// UNION TYPES WITH OBJECTS
++// =============================================================================
++
++class User {
++    public function __construct(public string $name) {}
++}
++
++class Admin {
++    public function __construct(public string $name, public string $role) {}
++}
++
++/**
++ * Shape with object union types
++ */
++function getAccount(): array{
++    id: int,
++    principal: User|Admin
++} {
++    return [
++        'id' => 1,
++        'principal' => new Admin('Alice', 'super')
++    ];
++}
++
++$account = getAccount();
++echo "Account ID: {$account['id']}, Principal: {$account['principal']->name}\n";
++
++
++// =============================================================================
++// COMPLEX UNION EXAMPLES
++// =============================================================================
++
++/**
++ * Real-world example: Database column value
++ */
++function getColumnValue(): array{
++    column: string,
++    value: int|float|string|bool|null,
++    type: string
++} {
++    return [
++        'column' => 'price',
++        'value' => 29.99,
++        'type' => 'decimal'
++    ];
++}
++
++$col = getColumnValue();
++echo "Column '{$col['column']}' = {$col['value']} (type: {$col['type']})\n";
++
++
++/**
++ * Union with array types
++ */
++function getItems(): array{
++    items: array|null,
++    count: int
++} {
++    return [
++        'items' => [1, 2, 3],
++        'count' => 3
++    ];
++}
++
++function getEmptyItems(): array{
++    items: array|null,
++    count: int
++} {
++    return [
++        'items' => null,
++        'count' => 0
++    ];
++}
++
++$items = getItems();
++$empty = getEmptyItems();
++echo "Items: " . ($items['items'] ? implode(', ', $items['items']) : 'none') . "\n";
++echo "Empty items: " . ($empty['items'] ? implode(', ', $empty['items']) : 'none') . "\n";
++
++
++// =============================================================================
++// OPTIONAL VS NULLABLE
++// =============================================================================
++
++/**
++ * Demonstrates the difference between optional keys and nullable types:
++ * - Optional key (key?): The key may be absent from the array
++ * - Nullable type (?type): The key must be present but can have null value
++ */
++
++// Optional: key may not exist
++function withOptionalKey(): array{name: string, age?: int} {
++    return ['name' => 'Alice']; // 'age' key is completely absent
++}
++
++// Nullable: key exists but value is null
++function withNullableValue(): array{name: string, age: ?int} {
++    return ['name' => 'Bob', 'age' => null]; // 'age' key must exist, but value can be null
++}
++
++$opt = withOptionalKey();
++$null = withNullableValue();
++echo "Optional - has 'age' key: " . (array_key_exists('age', $opt) ? 'yes' : 'no') . "\n";
++echo "Nullable - has 'age' key: " . (array_key_exists('age', $null) ? 'yes' : 'no') . ", value: " . ($null['age'] ?? 'null') . "\n";
++
++
++// =============================================================================
++// COMBINING OPTIONAL AND NULLABLE
++// =============================================================================
++
++/**
++ * Optional key with nullable type: key may be absent, or present with null/value
++ */
++function getContact(): array{
++    phone: string,
++    fax?: ?string,  // Optional AND nullable
++    email?: string  // Just optional (if present, must be string)
++} {
++    return [
++        'phone' => '555-0100',
++        'fax' => null  // Present but null
++        // email is absent
++    ];
++}
++
++$contact = getContact();
++echo "Contact - phone: {$contact['phone']}, fax: " . (array_key_exists('fax', $contact) ? ($contact['fax'] ?? 'null') : 'not set') . "\n";
++
++
++echo "\n--- All union and nullable type examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/05-shapes-with-typed-arrays.php b/examples/array-shapes/05-shapes-with-typed-arrays.php
+new file mode 100644
+index 00000000..ad4ad6da
+--- /dev/null
++++ b/examples/array-shapes/05-shapes-with-typed-arrays.php
+@@ -0,0 +1,290 @@
++<?php
++/**
++ * Combining Array Shapes with Typed Arrays (array<T>)
++ *
++ * Array shapes can contain typed array values, and typed arrays can contain shapes.
++ * This allows for powerful type definitions like array<array{id: int, name: string}>
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// TYPED ARRAYS INSIDE SHAPES
++// =============================================================================
++
++/**
++ * Shape with a typed array value
++ */
++function getNumberList(): array{name: string, values: array<int>} {
++    return [
++        'name' => 'Prime numbers',
++        'values' => [2, 3, 5, 7, 11, 13]
++    ];
++}
++
++$list = getNumberList();
++echo "List '{$list['name']}': " . implode(', ', $list['values']) . "\n";
++
++
++/**
++ * Shape with multiple typed array values
++ */
++function getDataSets(): array{
++    integers: array<int>,
++    floats: array<float>,
++    strings: array<string>
++} {
++    return [
++        'integers' => [1, 2, 3],
++        'floats' => [1.1, 2.2, 3.3],
++        'strings' => ['a', 'b', 'c']
++    ];
++}
++
++$sets = getDataSets();
++echo "Integers: " . implode(', ', $sets['integers']) . "\n";
++echo "Floats: " . implode(', ', $sets['floats']) . "\n";
++echo "Strings: " . implode(', ', $sets['strings']) . "\n";
++
++
++// =============================================================================
++// TYPED ARRAYS OF SHAPES (Lists of Objects)
++// =============================================================================
++
++/**
++ * Typed array containing shapes - perfect for list of records
++ */
++function getUsers(): array<array{id: int, name: string, active: bool}> {
++    return [
++        ['id' => 1, 'name' => 'Alice', 'active' => true],
++        ['id' => 2, 'name' => 'Bob', 'active' => false],
++        ['id' => 3, 'name' => 'Carol', 'active' => true]
++    ];
++}
++
++$users = getUsers();
++echo "Users:\n";
++foreach ($users as $user) {
++    echo "  - {$user['name']} (ID: {$user['id']}, " . ($user['active'] ? 'active' : 'inactive') . ")\n";
++}
++
++
++/**
++ * Typed array with more complex shapes
++ */
++function getOrders(): array<array{
++    order_id: string,
++    amount: float,
++    status: string,
++    created: string
++}> {
++    return [
++        ['order_id' => 'ORD-001', 'amount' => 99.99, 'status' => 'pending', 'created' => '2024-01-15'],
++        ['order_id' => 'ORD-002', 'amount' => 149.50, 'status' => 'shipped', 'created' => '2024-01-16'],
++        ['order_id' => 'ORD-003', 'amount' => 29.99, 'status' => 'delivered', 'created' => '2024-01-17']
++    ];
++}
++
++$orders = getOrders();
++echo "Orders:\n";
++foreach ($orders as $order) {
++    echo "  - {$order['order_id']}: \${$order['amount']} ({$order['status']})\n";
++}
++
++
++// =============================================================================
++// SHAPES WITH OPTIONAL KEYS IN TYPED ARRAYS
++// =============================================================================
++
++/**
++ * Typed array of shapes with optional keys
++ */
++function getContacts(): array<array{name: string, email: string, phone?: string}> {
++    return [
++        ['name' => 'Alice', 'email' => 'alice@example.com', 'phone' => '555-0101'],
++        ['name' => 'Bob', 'email' => 'bob@example.com'], // phone is optional
++        ['name' => 'Carol', 'email' => 'carol@example.com', 'phone' => '555-0103']
++    ];
++}
++
++$contacts = getContacts();
++echo "Contacts:\n";
++foreach ($contacts as $contact) {
++    echo "  - {$contact['name']}: {$contact['email']}" . (isset($contact['phone']) ? " ({$contact['phone']})" : "") . "\n";
++}
++
++
++// =============================================================================
++// NESTED: SHAPE WITH TYPED ARRAY OF SHAPES
++// =============================================================================
++
++/**
++ * Shape containing a typed array of shapes
++ */
++function getDepartment(): array{
++    name: string,
++    budget: float,
++    employees: array<array{id: int, name: string, role: string}>
++} {
++    return [
++        'name' => 'Engineering',
++        'budget' => 500000.00,
++        'employees' => [
++            ['id' => 1, 'name' => 'Alice', 'role' => 'Lead'],
++            ['id' => 2, 'name' => 'Bob', 'role' => 'Senior'],
++            ['id' => 3, 'name' => 'Carol', 'role' => 'Junior']
++        ]
++    ];
++}
++
++$dept = getDepartment();
++echo "Department: {$dept['name']} (Budget: \${$dept['budget']})\n";
++echo "  Employees:\n";
++foreach ($dept['employees'] as $emp) {
++    echo "    - {$emp['name']} ({$emp['role']})\n";
++}
++
++
++// =============================================================================
++// COMPLEX: MULTIPLE TYPED ARRAYS IN SHAPES
++// =============================================================================
++
++/**
++ * Shape with multiple typed array fields
++ */
++function getProject(): array{
++    id: string,
++    name: string,
++    tags: array<string>,
++    members: array<array{user_id: int, role: string}>,
++    milestones: array<array{name: string, date: string, completed: bool}>
++} {
++    return [
++        'id' => 'PRJ-001',
++        'name' => 'Website Redesign',
++        'tags' => ['web', 'design', 'frontend'],
++        'members' => [
++            ['user_id' => 1, 'role' => 'lead'],
++            ['user_id' => 2, 'role' => 'developer']
++        ],
++        'milestones' => [
++            ['name' => 'Design', 'date' => '2024-02-01', 'completed' => true],
++            ['name' => 'Development', 'date' => '2024-03-01', 'completed' => false]
++        ]
++    ];
++}
++
++$project = getProject();
++echo "Project: {$project['name']}\n";
++echo "  Tags: " . implode(', ', $project['tags']) . "\n";
++echo "  Members: " . count($project['members']) . "\n";
++echo "  Milestones:\n";
++foreach ($project['milestones'] as $ms) {
++    echo "    - {$ms['name']}: " . ($ms['completed'] ? 'done' : 'pending') . "\n";
++}
++
++
++// =============================================================================
++// KEYED TYPED ARRAYS IN SHAPES
++// =============================================================================
++
++/**
++ * Shape with keyed (associative) typed array
++ */
++function getSettings(): array{
++    app_name: string,
++    features: array<string, bool>,
++    limits: array<string, int>
++} {
++    return [
++        'app_name' => 'MyApp',
++        'features' => [
++            'dark_mode' => true,
++            'notifications' => false,
++            'analytics' => true
++        ],
++        'limits' => [
++            'max_users' => 100,
++            'max_storage' => 1024,
++            'max_requests' => 1000
++        ]
++    ];
++}
++
++$settings = getSettings();
++echo "App: {$settings['app_name']}\n";
++echo "  Features:\n";
++foreach ($settings['features'] as $feature => $enabled) {
++    echo "    - {$feature}: " . ($enabled ? 'on' : 'off') . "\n";
++}
++echo "  Limits:\n";
++foreach ($settings['limits'] as $limit => $value) {
++    echo "    - {$limit}: {$value}\n";
++}
++
++
++// =============================================================================
++// KEYED TYPED ARRAYS OF SHAPES
++// =============================================================================
++
++/**
++ * Associative array of shapes (keyed by string)
++ */
++function getUsersById(): array<string, array{name: string, email: string}> {
++    return [
++        'user_1' => ['name' => 'Alice', 'email' => 'alice@example.com'],
++        'user_2' => ['name' => 'Bob', 'email' => 'bob@example.com'],
++        'user_3' => ['name' => 'Carol', 'email' => 'carol@example.com']
++    ];
++}
++
++$usersById = getUsersById();
++echo "Users by ID:\n";
++foreach ($usersById as $id => $user) {
++    echo "  - {$id}: {$user['name']} <{$user['email']}>\n";
++}
++
++
++/**
++ * Integer-keyed array of shapes
++ */
++function getIndexedProducts(): array<int, array{sku: string, name: string, price: float}> {
++    return [
++        100 => ['sku' => 'WIDGET-A', 'name' => 'Widget A', 'price' => 9.99],
++        200 => ['sku' => 'WIDGET-B', 'name' => 'Widget B', 'price' => 19.99],
++        300 => ['sku' => 'WIDGET-C', 'name' => 'Widget C', 'price' => 29.99]
++    ];
++}
++
++$products = getIndexedProducts();
++echo "Products by index:\n";
++foreach ($products as $idx => $product) {
++    echo "  - [{$idx}] {$product['name']} (\${$product['price']})\n";
++}
++
++
++// =============================================================================
++// PARAMETER: TYPED ARRAY OF SHAPES
++// =============================================================================
++
++/**
++ * Function accepting typed array of shapes as parameter
++ */
++function calculateTotal(array<array{quantity: int, price: float}> $items): float {
++    $total = 0.0;
++    foreach ($items as $item) {
++        $total += $item['quantity'] * $item['price'];
++    }
++    return $total;
++}
++
++$cart = [
++    ['quantity' => 2, 'price' => 10.00],
++    ['quantity' => 1, 'price' => 25.50],
++    ['quantity' => 3, 'price' => 5.00]
++];
++$total = calculateTotal($cart);
++echo "Cart total: \${$total}\n";
++
++
++echo "\n--- All typed array with shapes examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/06-classes-and-interfaces.php b/examples/array-shapes/06-classes-and-interfaces.php
+new file mode 100644
+index 00000000..9cc96cc2
+--- /dev/null
++++ b/examples/array-shapes/06-classes-and-interfaces.php
+@@ -0,0 +1,353 @@
++<?php
++/**
++ * Array Shapes with Classes, Interfaces, and Traits
++ *
++ * Array shapes can be used in class methods, properties, interfaces, and traits.
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// CLASS METHODS WITH ARRAY SHAPES
++// =============================================================================
++
++class UserRepository
++{
++    /**
++     * Method returning an array shape
++     */
++    public function findById(int $id): array{id: int, name: string, email: string} {
++        return [
++            'id' => $id,
++            'name' => 'User ' . $id,
++            'email' => "user{$id}@example.com"
++        ];
++    }
++
++    /**
++     * Method accepting array shape as parameter
++     */
++    public function create(array{name: string, email: string, password?: string} $data): array{id: int, name: string, email: string} {
++        return [
++            'id' => rand(1000, 9999),
++            'name' => $data['name'],
++            'email' => $data['email']
++        ];
++    }
++
++    /**
++     * Method returning array of shapes
++     */
++    public function findAll(): array<array{id: int, name: string, email: string}> {
++        return [
++            ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'],
++            ['id' => 2, 'name' => 'Bob', 'email' => 'bob@example.com']
++        ];
++    }
++}
++
++$repo = new UserRepository();
++$user = $repo->findById(42);
++echo "Found user: {$user['name']} <{$user['email']}>\n";
++
++$newUser = $repo->create(['name' => 'Carol', 'email' => 'carol@example.com']);
++echo "Created user: {$newUser['name']} (ID: {$newUser['id']})\n";
++
++$all = $repo->findAll();
++echo "All users: " . count($all) . "\n";
++
++
++// =============================================================================
++// INTERFACE WITH ARRAY SHAPES
++// =============================================================================
++
++interface ConfigProviderInterface
++{
++    /**
++     * Interface method with shape return type
++     */
++    public function getConfig(): array{
++        debug: bool,
++        environment: string,
++        features: array<string>
++    };
++
++    /**
++     * Interface method with shape parameter
++     */
++    public function setConfig(array{
++        debug?: bool,
++        environment?: string,
++        features?: array<string>
++    } $config): void;
++}
++
++class AppConfigProvider implements ConfigProviderInterface
++{
++    private bool $debug = false;
++    private string $environment = 'production';
++    private array $features = [];
++
++    public function getConfig(): array{
++        debug: bool,
++        environment: string,
++        features: array<string>
++    } {
++        return [
++            'debug' => $this->debug,
++            'environment' => $this->environment,
++            'features' => $this->features
++        ];
++    }
++
++    public function setConfig(array{
++        debug?: bool,
++        environment?: string,
++        features?: array<string>
++    } $config): void {
++        if (isset($config['debug'])) {
++            $this->debug = $config['debug'];
++        }
++        if (isset($config['environment'])) {
++            $this->environment = $config['environment'];
++        }
++        if (isset($config['features'])) {
++            $this->features = $config['features'];
++        }
++    }
++}
++
++$configProvider = new AppConfigProvider();
++$configProvider->setConfig(['debug' => true, 'environment' => 'development']);
++$config = $configProvider->getConfig();
++echo "Config - debug: " . ($config['debug'] ? 'yes' : 'no') . ", env: {$config['environment']}\n";
++
++
++// =============================================================================
++// ABSTRACT CLASS WITH ARRAY SHAPES
++// =============================================================================
++
++abstract class BaseApiClient
++{
++    /**
++     * Abstract method with shape return type
++     */
++    abstract public function request(string $method, string $endpoint): array{
++        status: int,
++        body: mixed,
++        headers: array<string>
++    };
++
++    /**
++     * Concrete method using shapes
++     */
++    protected function buildResponse(
++        int $status,
++        mixed $body
++    ): array{status: int, body: mixed, headers: array<string>} {
++        return [
++            'status' => $status,
++            'body' => $body,
++            'headers' => ['Content-Type: application/json']
++        ];
++    }
++}
++
++class MockApiClient extends BaseApiClient
++{
++    public function request(string $method, string $endpoint): array{
++        status: int,
++        body: mixed,
++        headers: array<string>
++    } {
++        return $this->buildResponse(200, ['success' => true]);
++    }
++}
++
++$client = new MockApiClient();
++$response = $client->request('GET', '/users');
++echo "API response status: {$response['status']}\n";
++
++
++// =============================================================================
++// TRAIT WITH ARRAY SHAPES
++// =============================================================================
++
++trait Auditable
++{
++    /**
++     * Trait method returning shape
++     */
++    public function getAuditInfo(): array{
++        created_at: string,
++        updated_at: string,
++        created_by: ?int,
++        updated_by: ?int
++    } {
++        return [
++            'created_at' => '2024-01-15 10:00:00',
++            'updated_at' => '2024-01-16 15:30:00',
++            'created_by' => 1,
++            'updated_by' => 2
++        ];
++    }
++}
++
++class Document
++{
++    use Auditable;
++
++    public function __construct(
++        public string $title
++    ) {}
++}
++
++$doc = new Document('My Document');
++$audit = $doc->getAuditInfo();
++echo "Document '{$doc->title}' created at: {$audit['created_at']}\n";
++
++
++// =============================================================================
++// STATIC METHODS WITH ARRAY SHAPES
++// =============================================================================
++
++class Factory
++{
++    /**
++     * Static factory method returning shape
++     */
++    public static function createProduct(
++        string $name,
++        float $price
++    ): array{id: string, name: string, price: float, created: string} {
++        return [
++            'id' => uniqid('prod_'),
++            'name' => $name,
++            'price' => $price,
++            'created' => date('Y-m-d H:i:s')
++        ];
++    }
++
++    /**
++     * Static method returning array of shapes
++     */
++    public static function createBatch(
++        array<string> $names,
++        float $price
++    ): array<array{id: string, name: string, price: float, created: string}> {
++        $products = [];
++        foreach ($names as $name) {
++            $products[] = self::createProduct($name, $price);
++        }
++        return $products;
++    }
++}
++
++$product = Factory::createProduct('Widget', 9.99);
++echo "Product: {$product['name']} - \${$product['price']}\n";
++
++$batch = Factory::createBatch(['A', 'B', 'C'], 5.99);
++echo "Batch created: " . count($batch) . " products\n";
++
++
++// =============================================================================
++// CLASS WITH TYPED PROPERTIES (Array Shapes in Properties)
++// =============================================================================
++
++class Order
++{
++    /**
++     * Property with array shape type
++     */
++    public array $customer; // Type enforced at runtime when strict_arrays=1
++
++    /**
++     * Property with typed array of shapes
++     */
++    public array $items;
++
++    public function __construct(
++        array $customer,
++        array $items
++    ) {
++        $this->customer = $customer;
++        $this->items = $items;
++    }
++
++    public function getCustomer(): array{name: string, email: string} {
++        return $this->customer;
++    }
++
++    public function getItems(): array<array{sku: string, qty: int, price: float}> {
++        return $this->items;
++    }
++
++    public function getTotal(): float {
++        $total = 0.0;
++        foreach ($this->items as $item) {
++            $total += $item['qty'] * $item['price'];
++        }
++        return $total;
++    }
++}
++
++$order = new Order(
++    ['name' => 'John', 'email' => 'john@example.com'],
++    [
++        ['sku' => 'ABC', 'qty' => 2, 'price' => 10.00],
++        ['sku' => 'DEF', 'qty' => 1, 'price' => 25.00]
++    ]
++);
++echo "Order for: {$order->getCustomer()['name']}\n";
++echo "Total: \${$order->getTotal()}\n";
++
++
++// =============================================================================
++// FLUENT INTERFACE WITH ARRAY SHAPES
++// =============================================================================
++
++class QueryBuilder
++{
++    private array $conditions = [];
++    private array $orderBy = [];
++    private ?int $limit = null;
++
++    public function where(array{field: string, operator: string, value: mixed} $condition): self {
++        $this->conditions[] = $condition;
++        return $this;
++    }
++
++    public function orderBy(array{field: string, direction: string} $order): self {
++        $this->orderBy[] = $order;
++        return $this;
++    }
++
++    public function limit(int $limit): self {
++        $this->limit = $limit;
++        return $this;
++    }
++
++    public function build(): array{
++        conditions: array<array{field: string, operator: string, value: mixed}>,
++        order_by: array<array{field: string, direction: string}>,
++        limit: ?int
++    } {
++        return [
++            'conditions' => $this->conditions,
++            'order_by' => $this->orderBy,
++            'limit' => $this->limit
++        ];
++    }
++}
++
++$query = (new QueryBuilder())
++    ->where(['field' => 'status', 'operator' => '=', 'value' => 'active'])
++    ->where(['field' => 'age', 'operator' => '>', 'value' => 18])
++    ->orderBy(['field' => 'name', 'direction' => 'ASC'])
++    ->limit(10)
++    ->build();
++
++echo "Query - conditions: " . count($query['conditions']) . ", limit: {$query['limit']}\n";
++
++
++echo "\n--- All class and interface examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/07-closures-and-callables.php b/examples/array-shapes/07-closures-and-callables.php
+new file mode 100644
+index 00000000..3c251c46
+--- /dev/null
++++ b/examples/array-shapes/07-closures-and-callables.php
+@@ -0,0 +1,294 @@
++<?php
++/**
++ * Array Shapes with Closures and Callable Types
++ *
++ * Array shapes can be used with closures, arrow functions, and callable parameters.
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// CLOSURES WITH ARRAY SHAPE RETURN TYPES
++// =============================================================================
++
++/**
++ * Closure returning an array shape
++ */
++$createUser = function(string $name, string $email): array{id: int, name: string, email: string} {
++    return [
++        'id' => rand(1, 1000),
++        'name' => $name,
++        'email' => $email
++    ];
++};
++
++$user = $createUser('Alice', 'alice@example.com');
++echo "Created user: {$user['name']} <{$user['email']}>\n";
++
++
++/**
++ * Closure with array shape parameter
++ */
++$formatUser = function(array{name: string, email: string} $user): string {
++    return "{$user['name']} <{$user['email']}>";
++};
++
++echo "Formatted: " . $formatUser(['name' => 'Bob', 'email' => 'bob@example.com']) . "\n";
++
++
++// =============================================================================
++// ARROW FUNCTIONS WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Arrow function returning array shape
++ */
++$getPoint = fn(int $x, int $y): array{x: int, y: int} => ['x' => $x, 'y' => $y];
++
++$point = $getPoint(10, 20);
++echo "Point: ({$point['x']}, {$point['y']})\n";
++
++
++/**
++ * Arrow function with array shape parameter
++ */
++$distance = fn(array{x: int, y: int} $p): float => sqrt($p['x'] ** 2 + $p['y'] ** 2);
++
++echo "Distance from origin: " . round($distance(['x' => 3, 'y' => 4]), 2) . "\n";
++
++
++// =============================================================================
++// HIGHER-ORDER FUNCTIONS WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Function accepting closure that returns array shape
++ */
++function processWithTransformer(
++    array $data,
++    Closure $transformer
++): array<array{id: int, value: string}> {
++    $results = [];
++    foreach ($data as $key => $value) {
++        $results[] = $transformer($key, $value);
++    }
++    return $results;
++}
++
++$items = ['foo' => 'bar', 'baz' => 'qux'];
++$transformed = processWithTransformer(
++    $items,
++    fn($k, $v): array{id: int, value: string} => ['id' => crc32($k), 'value' => $v]
++);
++echo "Transformed items: " . count($transformed) . "\n";
++
++
++/**
++ * Function returning a closure that uses array shapes
++ */
++function createValidator(array{min: int, max: int} $range): Closure {
++    return function(int $value) use ($range): array{valid: bool, message: string} {
++        if ($value < $range['min']) {
++            return ['valid' => false, 'message' => "Value must be at least {$range['min']}"];
++        }
++        if ($value > $range['max']) {
++            return ['valid' => false, 'message' => "Value must be at most {$range['max']}"];
++        }
++        return ['valid' => true, 'message' => 'OK'];
++    };
++}
++
++$validateAge = createValidator(['min' => 0, 'max' => 150]);
++$result = $validateAge(25);
++echo "Validation: " . ($result['valid'] ? 'passed' : 'failed') . " - {$result['message']}\n";
++
++
++// =============================================================================
++// ARRAY_MAP WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Using array_map with closures that have array shape types
++ */
++$numbers = [1, 2, 3, 4, 5];
++
++$wrapped = array_map(
++    fn(int $n): array{value: int, squared: int} => ['value' => $n, 'squared' => $n * $n],
++    $numbers
++);
++
++echo "Wrapped numbers:\n";
++foreach ($wrapped as $item) {
++    echo "  {$item['value']} => {$item['squared']}\n";
++}
++
++
++// =============================================================================
++// ARRAY_FILTER WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Filtering an array of shapes
++ */
++$users = [
++    ['id' => 1, 'name' => 'Alice', 'active' => true],
++    ['id' => 2, 'name' => 'Bob', 'active' => false],
++    ['id' => 3, 'name' => 'Carol', 'active' => true]
++];
++
++/** @var array<array{id: int, name: string, active: bool}> $activeUsers */
++$activeUsers = array_filter(
++    $users,
++    fn(array{id: int, name: string, active: bool} $user): bool => $user['active']
++);
++
++echo "Active users: " . count($activeUsers) . "\n";
++
++
++// =============================================================================
++// ARRAY_REDUCE WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Reducing array of shapes to a single shape
++ */
++$orders = [
++    ['product' => 'Widget', 'qty' => 2, 'price' => 10.0],
++    ['product' => 'Gadget', 'qty' => 1, 'price' => 25.0],
++    ['product' => 'Thing', 'qty' => 3, 'price' => 5.0]
++];
++
++$summary = array_reduce(
++    $orders,
++    function(array{total_items: int, total_amount: float} $carry, array{product: string, qty: int, price: float} $item): array{total_items: int, total_amount: float} {
++        return [
++            'total_items' => $carry['total_items'] + $item['qty'],
++            'total_amount' => $carry['total_amount'] + ($item['qty'] * $item['price'])
++        ];
++    },
++    ['total_items' => 0, 'total_amount' => 0.0]
++);
++
++echo "Order summary: {$summary['total_items']} items, \${$summary['total_amount']}\n";
++
++
++// =============================================================================
++// USORT WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Sorting array of shapes
++ */
++$products = [
++    ['name' => 'Banana', 'price' => 0.50],
++    ['name' => 'Apple', 'price' => 1.00],
++    ['name' => 'Cherry', 'price' => 2.50]
++];
++
++usort($products, fn(array{name: string, price: float} $a, array{name: string, price: float} $b): int =>
++    $a['price'] <=> $b['price']
++);
++
++echo "Products by price:\n";
++foreach ($products as $p) {
++    echo "  {$p['name']}: \${$p['price']}\n";
++}
++
++
++// =============================================================================
++// CALLABLE RETURNING CLOSURES WITH SHAPES
++// =============================================================================
++
++/**
++ * Factory function returning typed closures
++ */
++function createCounter(int $start = 0): Closure {
++    $count = $start;
++    return function() use (&$count): array{current: int, next: int} {
++        $current = $count++;
++        return ['current' => $current, 'next' => $count];
++    };
++}
++
++$counter = createCounter(10);
++$step1 = $counter();
++$step2 = $counter();
++echo "Counter: step1={$step1['current']}, step2={$step2['current']}, next={$step2['next']}\n";
++
++
++// =============================================================================
++// CLOSURE WITH USE AND ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Closure capturing external variables
++ */
++$config = ['prefix' => 'USER_', 'suffix' => '_ID'];
++
++$formatId = function(int $id) use ($config): array{raw: int, formatted: string} {
++    return [
++        'raw' => $id,
++        'formatted' => $config['prefix'] . $id . $config['suffix']
++    ];
++};
++
++$formatted = $formatId(42);
++echo "ID: {$formatted['raw']} => {$formatted['formatted']}\n";
++
++
++// =============================================================================
++// RECURSIVE CLOSURES WITH ARRAY SHAPES
++// =============================================================================
++
++/**
++ * Recursive closure building a tree structure
++ */
++$buildTree = function(int $depth, string $prefix = '') use (&$buildTree): array{
++    name: string,
++    children: array
++} {
++    $name = $prefix . 'Node_' . $depth;
++    $children = [];
++
++    if ($depth > 0) {
++        $children[] = $buildTree($depth - 1, $prefix . 'L');
++        $children[] = $buildTree($depth - 1, $prefix . 'R');
++    }
++
++    return [
++        'name' => $name,
++        'children' => $children
++    ];
++};
++
++$tree = $buildTree(2);
++echo "Tree root: {$tree['name']}, children: " . count($tree['children']) . "\n";
++
++
++// =============================================================================
++// FIRST-CLASS CALLABLES WITH ARRAY SHAPES
++// =============================================================================
++
++class Formatter
++{
++    public function formatUser(array{name: string, email: string} $user): string {
++        return "{$user['name']} <{$user['email']}>";
++    }
++}
++
++$formatter = new Formatter();
++$formatFn = $formatter->formatUser(...);  // First-class callable
++
++$users = [
++    ['name' => 'Alice', 'email' => 'alice@example.com'],
++    ['name' => 'Bob', 'email' => 'bob@example.com']
++];
++
++$formatted = array_map($formatFn, $users);
++echo "Formatted users:\n";
++foreach ($formatted as $f) {
++    echo "  - {$f}\n";
++}
++
++
++echo "\n--- All closure and callable examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/08-reflection-api.php b/examples/array-shapes/08-reflection-api.php
+new file mode 100644
+index 00000000..cad597d5
+--- /dev/null
++++ b/examples/array-shapes/08-reflection-api.php
+@@ -0,0 +1,331 @@
++<?php
++/**
++ * Reflection API for Array Shapes
++ *
++ * The ReflectionArrayShapeType and ReflectionArrayShapeElement classes
++ * allow runtime inspection of array shape types.
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// BASIC REFLECTION OF ARRAY SHAPES
++// =============================================================================
++
++function getUserProfile(): array{id: int, name: string, email: string, active: bool} {
++    return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com', 'active' => true];
++}
++
++// Get reflection of the function
++$reflection = new ReflectionFunction('getUserProfile');
++$returnType = $reflection->getReturnType();
++
++echo "=== Basic Reflection ===\n";
++echo "Return type class: " . get_class($returnType) . "\n";
++echo "Is array shape: " . ($returnType instanceof ReflectionArrayShapeType ? 'yes' : 'no') . "\n";
++echo "Type as string: " . (string)$returnType . "\n";
++echo "\n";
++
++
++// =============================================================================
++// INSPECTING SHAPE ELEMENTS
++// =============================================================================
++
++echo "=== Shape Elements ===\n";
++
++$elements = $returnType->getElements();
++echo "Number of elements: " . count($elements) . "\n";
++echo "Element count method: " . $returnType->getElementCount() . "\n";
++echo "Required elements: " . $returnType->getRequiredElementCount() . "\n";
++echo "\n";
++
++echo "Elements:\n";
++foreach ($elements as $element) {
++    echo "  - Name: " . $element->getName() . "\n";
++    echo "    Type: " . (string)$element->getType() . "\n";
++    echo "    Optional: " . ($element->isOptional() ? 'yes' : 'no') . "\n";
++    echo "\n";
++}
++
++
++// =============================================================================
++// REFLECTION WITH OPTIONAL KEYS
++// =============================================================================
++
++function getConfig(): array{host: string, port?: int, ssl?: bool, timeout?: float} {
++    return ['host' => 'localhost'];
++}
++
++echo "=== Optional Keys Reflection ===\n";
++
++$configReflection = new ReflectionFunction('getConfig');
++$configType = $configReflection->getReturnType();
++
++echo "Total elements: " . $configType->getElementCount() . "\n";
++echo "Required elements: " . $configType->getRequiredElementCount() . "\n";
++echo "\n";
++
++foreach ($configType->getElements() as $elem) {
++    $status = $elem->isOptional() ? 'optional' : 'required';
++    echo "  - {$elem->getName()}: {$elem->getType()} ({$status})\n";
++}
++echo "\n";
++
++
++// =============================================================================
++// REFLECTION OF NESTED SHAPES
++// =============================================================================
++
++function getNestedData(): array{
++    user: array{id: int, name: string},
++    settings: array{theme: string, language: string}
++} {
++    return [
++        'user' => ['id' => 1, 'name' => 'Alice'],
++        'settings' => ['theme' => 'dark', 'language' => 'en']
++    ];
++}
++
++echo "=== Nested Shapes Reflection ===\n";
++
++$nestedReflection = new ReflectionFunction('getNestedData');
++$nestedType = $nestedReflection->getReturnType();
++
++foreach ($nestedType->getElements() as $elem) {
++    echo "Element: {$elem->getName()}\n";
++    $elemType = $elem->getType();
++    echo "  Type class: " . get_class($elemType) . "\n";
++
++    if ($elemType instanceof ReflectionArrayShapeType) {
++        echo "  Nested elements:\n";
++        foreach ($elemType->getElements() as $nested) {
++            echo "    - {$nested->getName()}: {$nested->getType()}\n";
++        }
++    }
++    echo "\n";
++}
++
++
++// =============================================================================
++// REFLECTION OF UNION TYPES IN SHAPES
++// =============================================================================
++
++function getFlexibleData(): array{id: int|string, value: float|int|null} {
++    return ['id' => 'ABC', 'value' => null];
++}
++
++echo "=== Union Types in Shapes ===\n";
++
++$flexReflection = new ReflectionFunction('getFlexibleData');
++$flexType = $flexReflection->getReturnType();
++
++foreach ($flexType->getElements() as $elem) {
++    $elemType = $elem->getType();
++    echo "Element: {$elem->getName()}\n";
++    echo "  Type: {$elemType}\n";
++    echo "  Type class: " . get_class($elemType) . "\n";
++
++    if ($elemType instanceof ReflectionUnionType) {
++        echo "  Union members:\n";
++        foreach ($elemType->getTypes() as $unionMember) {
++            echo "    - {$unionMember}\n";
++        }
++    }
++    echo "\n";
++}
++
++
++// =============================================================================
++// REFLECTION OF PARAMETER TYPES
++// =============================================================================
++
++function processOrder(array{product: string, quantity: int, price: float} $order): float {
++    return $order['quantity'] * $order['price'];
++}
++
++echo "=== Parameter Type Reflection ===\n";
++
++$orderReflection = new ReflectionFunction('processOrder');
++$params = $orderReflection->getParameters();
++
++foreach ($params as $param) {
++    echo "Parameter: \${$param->getName()}\n";
++    $paramType = $param->getType();
++    echo "  Type class: " . get_class($paramType) . "\n";
++
++    if ($paramType instanceof ReflectionArrayShapeType) {
++        echo "  Shape elements:\n";
++        foreach ($paramType->getElements() as $elem) {
++            echo "    - {$elem->getName()}: {$elem->getType()}\n";
++        }
++    }
++    echo "\n";
++}
++
++
++// =============================================================================
++// REFLECTION OF CLASS METHODS
++// =============================================================================
++
++class UserService
++{
++    public function create(
++        array{name: string, email: string, password?: string} $data
++    ): array{id: int, name: string, email: string, created_at: string} {
++        return [
++            'id' => 1,
++            'name' => $data['name'],
++            'email' => $data['email'],
++            'created_at' => date('c')
++        ];
++    }
++}
++
++echo "=== Class Method Reflection ===\n";
++
++$methodReflection = new ReflectionMethod(UserService::class, 'create');
++
++// Reflect parameter
++$paramType = $methodReflection->getParameters()[0]->getType();
++echo "Parameter type (create):\n";
++if ($paramType instanceof ReflectionArrayShapeType) {
++    foreach ($paramType->getElements() as $elem) {
++        $opt = $elem->isOptional() ? '?' : '';
++        echo "  - {$elem->getName()}{$opt}: {$elem->getType()}\n";
++    }
++}
++
++// Reflect return type
++$returnType = $methodReflection->getReturnType();
++echo "\nReturn type:\n";
++if ($returnType instanceof ReflectionArrayShapeType) {
++    foreach ($returnType->getElements() as $elem) {
++        echo "  - {$elem->getName()}: {$elem->getType()}\n";
++    }
++}
++echo "\n";
++
++
++// =============================================================================
++// DYNAMIC TYPE CHECKING USING REFLECTION
++// =============================================================================
++
++echo "=== Dynamic Type Checking ===\n";
++
++function validateAgainstShape(array $data, ReflectionArrayShapeType $shape): array {
++    $errors = [];
++
++    foreach ($shape->getElements() as $elem) {
++        $key = $elem->getName();
++
++        // Check if required key is missing
++        if (!array_key_exists($key, $data)) {
++            if (!$elem->isOptional()) {
++                $errors[] = "Missing required key: {$key}";
++            }
++            continue;
++        }
++
++        // Get the expected type as string
++        $expectedType = (string)$elem->getType();
++        $actualType = gettype($data[$key]);
++
++        echo "  Checking '{$key}': expected={$expectedType}, actual={$actualType}\n";
++    }
++
++    return $errors;
++}
++
++// Test validation
++$testData = ['id' => 1, 'name' => 'Test'];
++$shapeType = (new ReflectionFunction('getUserProfile'))->getReturnType();
++
++echo "Validating test data against getUserProfile shape:\n";
++$errors = validateAgainstShape($testData, $shapeType);
++if ($errors) {
++    echo "Errors found:\n";
++    foreach ($errors as $error) {
++        echo "  - {$error}\n";
++    }
++}
++echo "\n";
++
++
++// =============================================================================
++// BUILDING DOCUMENTATION FROM REFLECTION
++// =============================================================================
++
++echo "=== Auto-Generated Documentation ===\n";
++
++function generateShapeDoc(ReflectionArrayShapeType $shape): string {
++    $doc = "Shape structure:\n";
++    $doc .= "```\n";
++    $doc .= "array{\n";
++
++    foreach ($shape->getElements() as $elem) {
++        $optional = $elem->isOptional() ? '?' : '';
++        $doc .= "    {$elem->getName()}{$optional}: {$elem->getType()},\n";
++    }
++
++    $doc .= "}\n";
++    $doc .= "```\n";
++    $doc .= "\nTotal elements: " . $shape->getElementCount() . "\n";
++    $doc .= "Required elements: " . $shape->getRequiredElementCount() . "\n";
++
++    return $doc;
++}
++
++$docType = (new ReflectionFunction('getConfig'))->getReturnType();
++echo generateShapeDoc($docType);
++
++
++// =============================================================================
++// COMPARING SHAPE TYPES
++// =============================================================================
++
++function getUserA(): array{id: int, name: string} {
++    return ['id' => 1, 'name' => 'A'];
++}
++
++function getUserB(): array{id: int, name: string} {
++    return ['id' => 2, 'name' => 'B'];
++}
++
++function getUserC(): array{id: int, name: string, email: string} {
++    return ['id' => 3, 'name' => 'C', 'email' => 'c@example.com'];
++}
++
++echo "=== Comparing Shape Types ===\n";
++
++$typeA = (new ReflectionFunction('getUserA'))->getReturnType();
++$typeB = (new ReflectionFunction('getUserB'))->getReturnType();
++$typeC = (new ReflectionFunction('getUserC'))->getReturnType();
++
++function shapesMatch(ReflectionArrayShapeType $a, ReflectionArrayShapeType $b): bool {
++    if ($a->getElementCount() !== $b->getElementCount()) {
++        return false;
++    }
++
++    $aElements = $a->getElements();
++    $bElements = $b->getElements();
++
++    for ($i = 0; $i < count($aElements); $i++) {
++        if ($aElements[$i]->getName() !== $bElements[$i]->getName()) {
++            return false;
++        }
++        if ((string)$aElements[$i]->getType() !== (string)$bElements[$i]->getType()) {
++            return false;
++        }
++        if ($aElements[$i]->isOptional() !== $bElements[$i]->isOptional()) {
++            return false;
++        }
++    }
++
++    return true;
++}
++
++echo "getUserA matches getUserB: " . (shapesMatch($typeA, $typeB) ? 'yes' : 'no') . "\n";
++echo "getUserA matches getUserC: " . (shapesMatch($typeA, $typeC) ? 'yes' : 'no') . "\n";
++
++
++echo "\n--- All reflection examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/09-validation-and-errors.php b/examples/array-shapes/09-validation-and-errors.php
+new file mode 100644
+index 00000000..afbbc5af
+--- /dev/null
++++ b/examples/array-shapes/09-validation-and-errors.php
+@@ -0,0 +1,360 @@
++<?php
++/**
++ * Validation and Error Handling with Array Shapes
++ *
++ * When declare(strict_arrays=1) is enabled, PHP validates array shapes
++ * at runtime and throws TypeError on mismatches.
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// BASIC TYPE VALIDATION
++// =============================================================================
++
++echo "=== Basic Type Validation ===\n";
++
++function getValidUser(): array{id: int, name: string} {
++    return ['id' => 1, 'name' => 'Alice']; // Valid
++}
++
++$user = getValidUser();
++echo "Valid user: ID={$user['id']}, Name={$user['name']}\n\n";
++
++
++// =============================================================================
++// CATCHING TYPE ERRORS - MISSING REQUIRED KEY
++// =============================================================================
++
++echo "=== Missing Required Key ===\n";
++
++function getMissingKeyUser(): array{id: int, name: string, email: string} {
++    // This would cause a TypeError because 'email' is missing
++    // Uncommenting will throw: TypeError: Return value must have key 'email'
++    // return ['id' => 1, 'name' => 'Alice'];
++
++    // Correct version:
++    return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
++}
++
++try {
++    $user = getMissingKeyUser();
++    echo "User retrieved successfully: {$user['email']}\n";
++} catch (TypeError $e) {
++    echo "TypeError caught: {$e->getMessage()}\n";
++}
++echo "\n";
++
++
++// =============================================================================
++// CATCHING TYPE ERRORS - WRONG VALUE TYPE
++// =============================================================================
++
++echo "=== Wrong Value Type ===\n";
++
++function getTypedUser(int $id, string $name): array{id: int, name: string} {
++    // Parameters ensure correct types
++    return ['id' => $id, 'name' => $name];
++}
++
++try {
++    // This works
++    $user = getTypedUser(1, 'Bob');
++    echo "User: ID={$user['id']} (type: " . gettype($user['id']) . ")\n";
++
++    // This would fail at parameter level
++    // $user = getTypedUser('not-an-int', 'Carol');
++} catch (TypeError $e) {
++    echo "TypeError caught: {$e->getMessage()}\n";
++}
++echo "\n";
++
++
++// =============================================================================
++// OPTIONAL KEYS DON'T REQUIRE VALUES
++// =============================================================================
++
++echo "=== Optional Keys ===\n";
++
++function getPartialConfig(): array{host: string, port?: int, ssl?: bool} {
++    // Only 'host' is required - this is valid
++    return ['host' => 'localhost'];
++}
++
++function getFullConfig(): array{host: string, port?: int, ssl?: bool} {
++    // All keys provided - also valid
++    return ['host' => 'secure.example.com', 'port' => 443, 'ssl' => true];
++}
++
++$partial = getPartialConfig();
++$full = getFullConfig();
++echo "Partial config - host: {$partial['host']}, port: " . ($partial['port'] ?? 'not set') . "\n";
++echo "Full config - host: {$full['host']}, port: {$full['port']}, ssl: " . ($full['ssl'] ? 'yes' : 'no') . "\n\n";
++
++
++// =============================================================================
++// VALIDATION WITH NULLABLE TYPES
++// =============================================================================
++
++echo "=== Nullable Types ===\n";
++
++function getNullableData(): array{value: ?string, count: ?int} {
++    return [
++        'value' => null,  // Valid - nullable
++        'count' => null   // Valid - nullable
++    ];
++}
++
++function getMixedNullable(): array{value: ?string, count: ?int} {
++    return [
++        'value' => 'hello',  // Valid - string
++        'count' => null      // Valid - null
++    ];
++}
++
++$null = getNullableData();
++$mixed = getMixedNullable();
++echo "Nullable data - value: " . ($null['value'] ?? 'null') . ", count: " . ($null['count'] ?? 'null') . "\n";
++echo "Mixed data - value: {$mixed['value']}, count: " . ($mixed['count'] ?? 'null') . "\n\n";
++
++
++// =============================================================================
++// PARAMETER VALIDATION
++// =============================================================================
++
++echo "=== Parameter Validation ===\n";
++
++function processData(array{x: int, y: int} $point): int {
++    return $point['x'] + $point['y'];
++}
++
++try {
++    // Valid call
++    $sum = processData(['x' => 10, 'y' => 20]);
++    echo "Sum: {$sum}\n";
++
++    // Invalid call would be caught here
++    // $sum = processData(['x' => 10]); // Missing 'y'
++    // $sum = processData(['x' => 'ten', 'y' => 20]); // Wrong type
++} catch (TypeError $e) {
++    echo "TypeError caught: {$e->getMessage()}\n";
++}
++echo "\n";
++
++
++// =============================================================================
++// NESTED SHAPE VALIDATION
++// =============================================================================
++
++echo "=== Nested Shape Validation ===\n";
++
++function getNestedValid(): array{
++    user: array{id: int, name: string},
++    meta: array{created: string}
++} {
++    return [
++        'user' => ['id' => 1, 'name' => 'Alice'],
++        'meta' => ['created' => '2024-01-15']
++    ];
++}
++
++$nested = getNestedValid();
++echo "Nested user: {$nested['user']['name']}, created: {$nested['meta']['created']}\n\n";
++
++
++// =============================================================================
++// SAFE WRAPPER PATTERN
++// =============================================================================
++
++echo "=== Safe Wrapper Pattern ===\n";
++
++/**
++ * Wrapper that catches validation errors and returns a result shape
++ */
++function safeGetUser(int $id): array{success: bool, data: ?array, error: ?string} {
++    try {
++        // Simulate fetching user
++        if ($id <= 0) {
++            throw new InvalidArgumentException("Invalid user ID: {$id}");
++        }
++
++        $user = [
++            'id' => $id,
++            'name' => 'User ' . $id,
++            'email' => "user{$id}@example.com"
++        ];
++
++        return [
++            'success' => true,
++            'data' => $user,
++            'error' => null
++        ];
++    } catch (Throwable $e) {
++        return [
++            'success' => false,
++            'data' => null,
++            'error' => $e->getMessage()
++        ];
++    }
++}
++
++$result1 = safeGetUser(42);
++$result2 = safeGetUser(-1);
++
++echo "Result 1: " . ($result1['success'] ? "success - {$result1['data']['name']}" : "failed - {$result1['error']}") . "\n";
++echo "Result 2: " . ($result2['success'] ? "success - {$result2['data']['name']}" : "failed - {$result2['error']}") . "\n\n";
++
++
++// =============================================================================
++// VALIDATION HELPER FUNCTIONS
++// =============================================================================
++
++echo "=== Custom Validation Helpers ===\n";
++
++/**
++ * Validate array has required keys before using as shape
++ */
++function validateShape(array $data, array $requiredKeys): bool {
++    foreach ($requiredKeys as $key) {
++        if (!array_key_exists($key, $data)) {
++            return false;
++        }
++    }
++    return true;
++}
++
++/**
++ * Validate and coerce to shape
++ */
++function toUserShape(array $data): array{id: int, name: string, email: string} {
++    // Validate required keys
++    $required = ['id', 'name', 'email'];
++    foreach ($required as $key) {
++        if (!isset($data[$key])) {
++            throw new InvalidArgumentException("Missing required key: {$key}");
++        }
++    }
++
++    // Coerce types if needed
++    return [
++        'id' => (int) $data['id'],
++        'name' => (string) $data['name'],
++        'email' => (string) $data['email']
++    ];
++}
++
++try {
++    $userData = ['id' => '123', 'name' => 'Test', 'email' => 'test@example.com'];
++    $user = toUserShape($userData);
++    echo "Coerced user: ID={$user['id']} (type: " . gettype($user['id']) . ")\n";
++} catch (InvalidArgumentException $e) {
++    echo "Validation failed: {$e->getMessage()}\n";
++}
++echo "\n";
++
++
++// =============================================================================
++// ASSERTION STYLE VALIDATION
++// =============================================================================
++
++echo "=== Assertion Style Validation ===\n";
++
++/**
++ * Assert function for shape validation
++ */
++function assertValidUser(array $user): void {
++    assert(isset($user['id']) && is_int($user['id']), 'id must be an integer');
++    assert(isset($user['name']) && is_string($user['name']), 'name must be a string');
++    assert(isset($user['email']) && is_string($user['email']), 'email must be a string');
++}
++
++$validUser = ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
++assertValidUser($validUser);
++echo "User validated successfully\n\n";
++
++
++// =============================================================================
++// TYPED ARRAYS VALIDATION
++// =============================================================================
++
++echo "=== Typed Arrays Validation ===\n";
++
++function getTypedList(): array<int> {
++    return [1, 2, 3, 4, 5]; // Valid - all integers
++}
++
++function getTypedShapeList(): array<array{id: int, name: string}> {
++    return [
++        ['id' => 1, 'name' => 'Alice'],
++        ['id' => 2, 'name' => 'Bob'],
++        ['id' => 3, 'name' => 'Carol']
++    ];
++}
++
++$numbers = getTypedList();
++$users = getTypedShapeList();
++echo "Numbers: " . implode(', ', $numbers) . "\n";
++echo "Users: " . count($users) . " valid user shapes\n\n";
++
++
++// =============================================================================
++// DEFENSIVE CODING PATTERNS
++// =============================================================================
++
++echo "=== Defensive Coding Patterns ===\n";
++
++class UserRepository
++{
++    /**
++     * Returns user or throws exception
++     */
++    public function findOrFail(int $id): array{id: int, name: string, email: string} {
++        $user = $this->find($id);
++        if ($user === null) {
++            throw new RuntimeException("User not found: {$id}");
++        }
++        return $user;
++    }
++
++    /**
++     * Returns user or null
++     */
++    public function find(int $id): ?array {
++        if ($id <= 0) {
++            return null;
++        }
++        return ['id' => $id, 'name' => "User {$id}", 'email' => "user{$id}@example.com"];
++    }
++
++    /**
++     * Returns result shape for safer error handling
++     */
++    public function findSafe(int $id): array{found: bool, user: ?array} {
++        $user = $this->find($id);
++        return [
++            'found' => $user !== null,
++            'user' => $user
++        ];
++    }
++}
++
++$repo = new UserRepository();
++
++// Pattern 1: Try-catch with findOrFail
++try {
++    $user = $repo->findOrFail(1);
++    echo "Found user: {$user['name']}\n";
++} catch (RuntimeException $e) {
++    echo "Error: {$e->getMessage()}\n";
++}
++
++// Pattern 2: Check result shape
++$result = $repo->findSafe(999);
++if ($result['found']) {
++    echo "User found: {$result['user']['name']}\n";
++} else {
++    echo "User not found\n";
++}
++
++
++echo "\n--- All validation and error examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/10-real-world-patterns.php b/examples/array-shapes/10-real-world-patterns.php
+new file mode 100644
+index 00000000..d8c0fdc8
+--- /dev/null
++++ b/examples/array-shapes/10-real-world-patterns.php
+@@ -0,0 +1,590 @@
++<?php
++/**
++ * Real-World Patterns and Use Cases for Array Shapes
++ *
++ * Common patterns you'll encounter in production applications.
++ */
++
++declare(strict_arrays=1);
++
++// =============================================================================
++// PATTERN 1: API RESPONSES
++// =============================================================================
++
++echo "=== API Response Pattern ===\n";
++
++/**
++ * Standard API response wrapper
++ */
++function apiSuccess(mixed $data): array{
++    success: bool,
++    data: mixed,
++    error: ?string,
++    meta: array{timestamp: string, version: string}
++} {
++    return [
++        'success' => true,
++        'data' => $data,
++        'error' => null,
++        'meta' => [
++            'timestamp' => date('c'),
++            'version' => '1.0'
++        ]
++    ];
++}
++
++function apiError(string $message, int $code = 500): array{
++    success: bool,
++    data: ?array,
++    error: string,
++    meta: array{timestamp: string, code: int}
++} {
++    return [
++        'success' => false,
++        'data' => null,
++        'error' => $message,
++        'meta' => [
++            'timestamp' => date('c'),
++            'code' => $code
++        ]
++    ];
++}
++
++$success = apiSuccess(['user' => ['id' => 1, 'name' => 'Alice']]);
++$error = apiError('User not found', 404);
++echo "Success response: " . json_encode($success) . "\n";
++echo "Error response: " . json_encode($error) . "\n\n";
++
++
++// =============================================================================
++// PATTERN 2: CONFIGURATION OBJECTS
++// =============================================================================
++
++echo "=== Configuration Pattern ===\n";
++
++/**
++ * Database configuration
++ */
++function getDatabaseConfig(): array{
++    driver: string,
++    host: string,
++    port: int,
++    database: string,
++    username: string,
++    password: string,
++    options?: array{
++        charset?: string,
++        collation?: string,
++        timeout?: int,
++        persistent?: bool
++    }
++} {
++    return [
++        'driver' => 'mysql',
++        'host' => 'localhost',
++        'port' => 3306,
++        'database' => 'myapp',
++        'username' => 'root',
++        'password' => 'secret',
++        'options' => [
++            'charset' => 'utf8mb4',
++            'timeout' => 30
++        ]
++    ];
++}
++
++/**
++ * Cache configuration
++ */
++function getCacheConfig(): array{
++    driver: string,
++    prefix: string,
++    ttl: int,
++    redis?: array{host: string, port: int, password?: string},
++    memcached?: array{servers: array<array{host: string, port: int}>}
++} {
++    return [
++        'driver' => 'redis',
++        'prefix' => 'myapp_',
++        'ttl' => 3600,
++        'redis' => [
++            'host' => '127.0.0.1',
++            'port' => 6379
++        ]
++    ];
++}
++
++$dbConfig = getDatabaseConfig();
++$cacheConfig = getCacheConfig();
++echo "DB: {$dbConfig['driver']}://{$dbConfig['host']}:{$dbConfig['port']}/{$dbConfig['database']}\n";
++echo "Cache: {$cacheConfig['driver']} (prefix: {$cacheConfig['prefix']}, ttl: {$cacheConfig['ttl']}s)\n\n";
++
++
++// =============================================================================
++// PATTERN 3: DATA TRANSFER OBJECTS (DTOs) AS SHAPES
++// =============================================================================
++
++echo "=== DTO Pattern ===\n";
++
++/**
++ * User DTO
++ */
++function createUserDTO(
++    int $id,
++    string $name,
++    string $email
++): array{id: int, name: string, email: string, created_at: string} {
++    return [
++        'id' => $id,
++        'name' => $name,
++        'email' => $email,
++        'created_at' => date('c')
++    ];
++}
++
++/**
++ * Order DTO with nested structures
++ */
++function createOrderDTO(
++    string $orderId,
++    array{id: int, name: string, email: string} $customer,
++    array<array{sku: string, name: string, qty: int, price: float}> $items
++): array{
++    order_id: string,
++    customer: array{id: int, name: string, email: string},
++    items: array<array{sku: string, name: string, qty: int, price: float}>,
++    total: float,
++    created_at: string
++} {
++    $total = array_reduce($items, fn($sum, $item) => $sum + ($item['qty'] * $item['price']), 0.0);
++
++    return [
++        'order_id' => $orderId,
++        'customer' => $customer,
++        'items' => $items,
++        'total' => $total,
++        'created_at' => date('c')
++    ];
++}
++
++$user = createUserDTO(1, 'Alice', 'alice@example.com');
++$order = createOrderDTO(
++    'ORD-001',
++    $user,
++    [
++        ['sku' => 'WIDGET-A', 'name' => 'Widget A', 'qty' => 2, 'price' => 10.00],
++        ['sku' => 'GADGET-B', 'name' => 'Gadget B', 'qty' => 1, 'price' => 25.00]
++    ]
++);
++echo "Order {$order['order_id']} for {$order['customer']['name']}: \${$order['total']}\n\n";
++
++
++// =============================================================================
++// PATTERN 4: EVENT PAYLOADS
++// =============================================================================
++
++echo "=== Event Payload Pattern ===\n";
++
++/**
++ * User registered event
++ */
++function userRegisteredEvent(
++    int $userId,
++    string $email
++): array{event: string, payload: array{user_id: int, email: string}, timestamp: string} {
++    return [
++        'event' => 'user.registered',
++        'payload' => [
++            'user_id' => $userId,
++            'email' => $email
++        ],
++        'timestamp' => date('c')
++    ];
++}
++
++/**
++ * Order placed event
++ */
++function orderPlacedEvent(
++    string $orderId,
++    int $customerId,
++    float $total
++): array{event: string, payload: array{order_id: string, customer_id: int, total: float}, timestamp: string} {
++    return [
++        'event' => 'order.placed',
++        'payload' => [
++            'order_id' => $orderId,
++            'customer_id' => $customerId,
++            'total' => $total
++        ],
++        'timestamp' => date('c')
++    ];
++}
++
++$regEvent = userRegisteredEvent(42, 'new@example.com');
++$orderEvent = orderPlacedEvent('ORD-123', 42, 99.99);
++echo "Event: {$regEvent['event']} at {$regEvent['timestamp']}\n";
++echo "Event: {$orderEvent['event']} - Order {$orderEvent['payload']['order_id']}\n\n";
++
++
++// =============================================================================
++// PATTERN 5: FORM DATA VALIDATION
++// =============================================================================
++
++echo "=== Form Validation Pattern ===\n";
++
++/**
++ * Registration form data
++ */
++function validateRegistrationForm(array $input): array{
++    valid: bool,
++    data?: array{name: string, email: string, password: string},
++    errors: array<string>
++} {
++    $errors = [];
++
++    if (empty($input['name'])) {
++        $errors[] = 'Name is required';
++    }
++    if (empty($input['email']) || !str_contains($input['email'], '@')) {
++        $errors[] = 'Valid email is required';
++    }
++    if (empty($input['password']) || strlen($input['password']) < 8) {
++        $errors[] = 'Password must be at least 8 characters';
++    }
++
++    if (empty($errors)) {
++        return [
++            'valid' => true,
++            'data' => [
++                'name' => $input['name'],
++                'email' => $input['email'],
++                'password' => $input['password']
++            ],
++            'errors' => []
++        ];
++    }
++
++    return [
++        'valid' => false,
++        'errors' => $errors
++    ];
++}
++
++$validForm = validateRegistrationForm([
++    'name' => 'Alice',
++    'email' => 'alice@example.com',
++    'password' => 'securepassword'
++]);
++
++$invalidForm = validateRegistrationForm([
++    'name' => '',
++    'email' => 'not-an-email',
++    'password' => 'short'
++]);
++
++echo "Valid form: " . ($validForm['valid'] ? 'yes' : 'no') . "\n";
++echo "Invalid form errors: " . implode(', ', $invalidForm['errors']) . "\n\n";
++
++
++// =============================================================================
++// PATTERN 6: PAGINATION RESULTS
++// =============================================================================
++
++echo "=== Pagination Pattern ===\n";
++
++/**
++ * Paginated result wrapper
++ */
++function paginatedResult(
++    array $items,
++    int $page,
++    int $perPage,
++    int $total
++): array{
++    data: array,
++    pagination: array{
++        current_page: int,
++        per_page: int,
++        total_items: int,
++        total_pages: int,
++        has_next: bool,
++        has_prev: bool
++    }
++} {
++    $totalPages = (int) ceil($total / $perPage);
++
++    return [
++        'data' => $items,
++        'pagination' => [
++            'current_page' => $page,
++            'per_page' => $perPage,
++            'total_items' => $total,
++            'total_pages' => $totalPages,
++            'has_next' => $page < $totalPages,
++            'has_prev' => $page > 1
++        ]
++    ];
++}
++
++$result = paginatedResult(
++    [['id' => 1], ['id' => 2], ['id' => 3]],
++    2, 10, 45
++);
++echo "Page {$result['pagination']['current_page']} of {$result['pagination']['total_pages']}\n";
++echo "Has next: " . ($result['pagination']['has_next'] ? 'yes' : 'no') . "\n\n";
++
++
++// =============================================================================
++// PATTERN 7: REPOSITORY METHODS
++// =============================================================================
++
++echo "=== Repository Pattern ===\n";
++
++class ProductRepository
++{
++    private array $products = [];
++
++    public function __construct()
++    {
++        $this->products = [
++            ['id' => 1, 'sku' => 'PROD-001', 'name' => 'Widget', 'price' => 9.99, 'stock' => 100],
++            ['id' => 2, 'sku' => 'PROD-002', 'name' => 'Gadget', 'price' => 19.99, 'stock' => 50],
++            ['id' => 3, 'sku' => 'PROD-003', 'name' => 'Thing', 'price' => 29.99, 'stock' => 25]
++        ];
++    }
++
++    public function findById(int $id): ?array {
++        foreach ($this->products as $product) {
++            if ($product['id'] === $id) {
++                return $product;
++            }
++        }
++        return null;
++    }
++
++    public function findAll(): array<array{id: int, sku: string, name: string, price: float, stock: int}> {
++        return $this->products;
++    }
++
++    public function findBySku(string $sku): ?array {
++        foreach ($this->products as $product) {
++            if ($product['sku'] === $sku) {
++                return $product;
++            }
++        }
++        return null;
++    }
++
++    public function search(
++        array{min_price?: float, max_price?: float, in_stock?: bool} $criteria
++    ): array<array{id: int, sku: string, name: string, price: float, stock: int}> {
++        return array_filter($this->products, function($p) use ($criteria) {
++            if (isset($criteria['min_price']) && $p['price'] < $criteria['min_price']) {
++                return false;
++            }
++            if (isset($criteria['max_price']) && $p['price'] > $criteria['max_price']) {
++                return false;
++            }
++            if (isset($criteria['in_stock']) && $criteria['in_stock'] && $p['stock'] <= 0) {
++                return false;
++            }
++            return true;
++        });
++    }
++}
++
++$repo = new ProductRepository();
++$all = $repo->findAll();
++$searched = $repo->search(['min_price' => 15.00, 'in_stock' => true]);
++
++echo "All products: " . count($all) . "\n";
++echo "Filtered products: " . count($searched) . "\n\n";
++
++
++// =============================================================================
++// PATTERN 8: SERVICE LAYER RESPONSES
++// =============================================================================
++
++echo "=== Service Layer Pattern ===\n";
++
++class PaymentService
++{
++    public function processPayment(
++        array{amount: float, currency: string, card_token: string} $payment
++    ): array{
++        success: bool,
++        transaction_id: ?string,
++        error_code: ?string,
++        error_message: ?string
++    } {
++        // Simulate payment processing
++        if ($payment['amount'] <= 0) {
++            return [
++                'success' => false,
++                'transaction_id' => null,
++                'error_code' => 'INVALID_AMOUNT',
++                'error_message' => 'Amount must be greater than zero'
++            ];
++        }
++
++        return [
++            'success' => true,
++            'transaction_id' => 'TXN-' . uniqid(),
++            'error_code' => null,
++            'error_message' => null
++        ];
++    }
++
++    public function refund(
++        string $transactionId,
++        float $amount
++    ): array{success: bool, refund_id: ?string, error: ?string} {
++        return [
++            'success' => true,
++            'refund_id' => 'REF-' . uniqid(),
++            'error' => null
++        ];
++    }
++}
++
++$paymentService = new PaymentService();
++$result = $paymentService->processPayment([
++    'amount' => 99.99,
++    'currency' => 'USD',
++    'card_token' => 'tok_visa'
++]);
++
++echo "Payment: " . ($result['success'] ? "Success - {$result['transaction_id']}" : "Failed - {$result['error_message']}") . "\n\n";
++
++
++// =============================================================================
++// PATTERN 9: BUILDER PATTERN WITH SHAPES
++// =============================================================================
++
++echo "=== Builder Pattern ===\n";
++
++class EmailBuilder
++{
++    private array $data = [
++        'to' => [],
++        'cc' => [],
++        'bcc' => [],
++        'subject' => '',
++        'body' => '',
++        'attachments' => []
++    ];
++
++    public function to(string $email, string $name = ''): self {
++        $this->data['to'][] = ['email' => $email, 'name' => $name];
++        return $this;
++    }
++
++    public function cc(string $email): self {
++        $this->data['cc'][] = $email;
++        return $this;
++    }
++
++    public function subject(string $subject): self {
++        $this->data['subject'] = $subject;
++        return $this;
++    }
++
++    public function body(string $body): self {
++        $this->data['body'] = $body;
++        return $this;
++    }
++
++    public function attach(array{filename: string, content: string, mime: string} $attachment): self {
++        $this->data['attachments'][] = $attachment;
++        return $this;
++    }
++
++    public function build(): array{
++        to: array<array{email: string, name: string}>,
++        cc: array<string>,
++        bcc: array<string>,
++        subject: string,
++        body: string,
++        attachments: array<array{filename: string, content: string, mime: string}>
++    } {
++        return $this->data;
++    }
++}
++
++$email = (new EmailBuilder())
++    ->to('alice@example.com', 'Alice')
++    ->to('bob@example.com', 'Bob')
++    ->cc('manager@example.com')
++    ->subject('Weekly Report')
++    ->body('Please find attached the weekly report.')
++    ->attach(['filename' => 'report.pdf', 'content' => '...', 'mime' => 'application/pdf'])
++    ->build();
++
++echo "Email to: " . count($email['to']) . " recipients, Subject: {$email['subject']}\n\n";
++
++
++// =============================================================================
++// PATTERN 10: JSON API RESOURCES
++// =============================================================================
++
++echo "=== JSON:API Resource Pattern ===\n";
++
++/**
++ * JSON:API compliant resource wrapper
++ */
++function jsonApiResource(
++    string $type,
++    string|int $id,
++    array $attributes,
++    array $relationships = []
++): array{
++    type: string,
++    id: string,
++    attributes: array,
++    relationships: array,
++    links: array{self: string}
++} {
++    return [
++        'type' => $type,
++        'id' => (string) $id,
++        'attributes' => $attributes,
++        'relationships' => $relationships,
++        'links' => [
++            'self' => "/{$type}/{$id}"
++        ]
++    ];
++}
++
++/**
++ * JSON:API collection wrapper
++ */
++function jsonApiCollection(
++    array $resources,
++    array{page: int, per_page: int, total: int} $meta
++): array{
++    data: array,
++    meta: array{page: int, per_page: int, total: int, total_pages: int}
++} {
++    return [
++        'data' => $resources,
++        'meta' => [
++            'page' => $meta['page'],
++            'per_page' => $meta['per_page'],
++            'total' => $meta['total'],
++            'total_pages' => (int) ceil($meta['total'] / $meta['per_page'])
++        ]
++    ];
++}
++
++$userResource = jsonApiResource('users', 1, ['name' => 'Alice', 'email' => 'alice@example.com']);
++$collection = jsonApiCollection(
++    [$userResource],
++    ['page' => 1, 'per_page' => 10, 'total' => 1]
++);
++
++echo "Resource type: {$userResource['type']}, id: {$userResource['id']}\n";
++echo "Collection total: {$collection['meta']['total']}\n\n";
++
++
++echo "--- All real-world pattern examples completed successfully! ---\n";
+diff --git a/examples/array-shapes/README.md b/examples/array-shapes/README.md
+new file mode 100644
+index 00000000..cbd5d3e9
+--- /dev/null
++++ b/examples/array-shapes/README.md
+@@ -0,0 +1,250 @@
++# Array Shape Examples
++
++This directory contains comprehensive examples demonstrating all features of PHP's array shape type syntax.
++
++## What Are Array Shapes?
++
++Array shapes allow you to define the structure of associative arrays with typed keys:
++
++```php
++declare(strict_arrays=1);
++
++function getUser(): array{id: int, name: string, email?: string} {
++    return ['id' => 1, 'name' => 'Alice'];
++}
++```
++
++## Quick Reference
++
++### Basic Syntax
++
++```php
++// Required keys
++array{key: type}
++
++// Optional keys (may be absent)
++array{key?: type}
++
++// Nullable values (key present, value can be null)
++array{key: ?type}
++
++// Multiple keys
++array{key1: type1, key2: type2, key3?: type3}
++```
++
++### Type Options
++
++```php
++// Scalar types
++array{id: int, name: string, price: float, active: bool}
++
++// Nullable types
++array{value: ?string}
++
++// Union types
++array{id: int|string, value: float|null}
++
++// Mixed type
++array{data: mixed}
++
++// Array types
++array{items: array}
++array{numbers: array<int>}
++array{users: array<array{id: int, name: string}>}
++
++// Object types
++array{user: User, admin: ?Admin}
++```
++
++### Where You Can Use Array Shapes
++
++```php
++// Return types
++function getUser(): array{id: int, name: string} { ... }
++
++// Parameter types
++function process(array{x: int, y: int} $point): void { ... }
++
++// Closures and arrow functions
++$fn = fn(): array{value: int} => ['value' => 42];
++
++// Class methods
++class UserService {
++    public function find(int $id): array{id: int, name: string} { ... }
++}
++
++// Interface methods
++interface ConfigProvider {
++    public function getConfig(): array{debug: bool, env: string};
++}
++```
++
++## Examples Index
++
++| File | Description |
++|------|-------------|
++| `01-basic-shapes.php` | Basic array shape syntax with required keys |
++| `02-optional-keys.php` | Optional keys with `key?: type` syntax |
++| `03-nested-shapes.php` | Nested array shapes for complex structures |
++| `04-union-and-nullable-types.php` | Union types and nullable values in shapes |
++| `05-shapes-with-typed-arrays.php` | Combining shapes with `array<T>` syntax |
++| `06-classes-and-interfaces.php` | Using shapes in classes, interfaces, traits |
++| `07-closures-and-callables.php` | Shapes with closures and arrow functions |
++| `08-reflection-api.php` | Runtime inspection with Reflection API |
++| `09-validation-and-errors.php` | Error handling and validation patterns |
++| `10-real-world-patterns.php` | Production-ready patterns and use cases |
++
++## Running Examples
++
++```bash
++# Run any example
++./sapi/cli/php examples/array-shapes/01-basic-shapes.php
++
++# Run all examples
++for f in examples/array-shapes/*.php; do echo "=== $f ==="; ./sapi/cli/php "$f"; done
++```
++
++## Key Concepts
++
++### Optional vs Nullable
++
++```php
++// Optional: key may not exist in array
++array{name: string, email?: string}
++// Valid: ['name' => 'Alice']
++// Valid: ['name' => 'Alice', 'email' => 'alice@example.com']
++
++// Nullable: key must exist but value can be null
++array{name: string, email: ?string}
++// Valid: ['name' => 'Alice', 'email' => null]
++// Valid: ['name' => 'Alice', 'email' => 'alice@example.com']
++// Invalid: ['name' => 'Alice'] - missing 'email' key
++
++// Both: key is optional, and if present can be null
++array{name: string, email?: ?string}
++```
++
++### Nested Shapes
++
++```php
++array{
++    user: array{
++        id: int,
++        profile: array{
++            name: string,
++            avatar?: string
++        }
++    },
++    settings: array{
++        theme: string,
++        notifications: bool
++    }
++}
++```
++
++### Shapes with Typed Arrays
++
++```php
++// Shape containing typed array
++array{
++    name: string,
++    tags: array<string>,
++    scores: array<int>
++}
++
++// Typed array of shapes (list of records)
++array<array{id: int, name: string}>
++
++// Keyed array of shapes (dictionary)
++array<string, array{value: mixed, type: string}>
++```
++
++## Reflection API
++
++```php
++$reflection = new ReflectionFunction('getUser');
++$returnType = $reflection->getReturnType();
++
++if ($returnType instanceof ReflectionArrayShapeType) {
++    echo "Element count: " . $returnType->getElementCount() . "\n";
++    echo "Required count: " . $returnType->getRequiredElementCount() . "\n";
++
++    foreach ($returnType->getElements() as $element) {
++        echo $element->getName() . ": " . $element->getType();
++        if ($element->isOptional()) {
++            echo " (optional)";
++        }
++        echo "\n";
++    }
++}
++```
++
++## Common Patterns
++
++### API Response Wrapper
++
++```php
++function apiResponse(mixed $data, ?string $error = null): array{
++    success: bool,
++    data: mixed,
++    error: ?string,
++    timestamp: string
++} {
++    return [
++        'success' => $error === null,
++        'data' => $data,
++        'error' => $error,
++        'timestamp' => date('c')
++    ];
++}
++```
++
++### Configuration Object
++
++```php
++function getConfig(): array{
++    database: array{host: string, port: int, name: string},
++    cache: array{driver: string, ttl: int},
++    debug?: bool
++} { ... }
++```
++
++### DTO Factory
++
++```php
++function createUserDTO(
++    int $id,
++    string $name,
++    string $email
++): array{id: int, name: string, email: string, created_at: string} {
++    return [
++        'id' => $id,
++        'name' => $name,
++        'email' => $email,
++        'created_at' => date('c')
++    ];
++}
++```
++
++### Paginated Results
++
++```php
++function paginate(array $items, int $page, int $total): array{
++    data: array,
++    meta: array{page: int, total: int, has_more: bool}
++} {
++    return [
++        'data' => $items,
++        'meta' => [
++            'page' => $page,
++            'total' => $total,
++            'has_more' => count($items) < $total
++        ]
++    ];
++}
++```
++
++## Requirements
++
++- PHP 8.5+ with array shape support
++- `declare(strict_arrays=1)` for runtime validation
+diff --git a/ext/reflection/php_reflection.c b/ext/reflection/php_reflection.c
+index 583717a6..db205a43 100644
+--- a/ext/reflection/php_reflection.c
++++ b/ext/reflection/php_reflection.c
+@@ -90,6 +90,9 @@ PHPAPI zend_class_entry *reflection_type_ptr;
+ PHPAPI zend_class_entry *reflection_named_type_ptr;
+ PHPAPI zend_class_entry *reflection_intersection_type_ptr;
+ PHPAPI zend_class_entry *reflection_union_type_ptr;
++PHPAPI zend_class_entry *reflection_array_type_ptr;
++PHPAPI zend_class_entry *reflection_array_shape_type_ptr;
++PHPAPI zend_class_entry *reflection_array_shape_element_ptr;
+ PHPAPI zend_class_entry *reflection_class_ptr;
+ PHPAPI zend_class_entry *reflection_object_ptr;
+ PHPAPI zend_class_entry *reflection_method_ptr;
+@@ -159,6 +162,13 @@ typedef struct _attribute_reference {
+ 	uint32_t target;
+ } attribute_reference;
+ 
++/* Struct to store array shape element reference for ReflectionArrayShapeElement */
++typedef struct _array_shape_element_reference {
++	zend_string *key;
++	zend_type type;
++	bool is_optional;
++} array_shape_element_reference;
++
+ typedef enum {
+ 	REF_TYPE_OTHER,      /* Must be 0 */
+ 	REF_TYPE_FUNCTION,
+@@ -168,7 +178,8 @@ typedef enum {
+ 	REF_TYPE_TYPE,
+ 	REF_TYPE_PROPERTY,
+ 	REF_TYPE_CLASS_CONSTANT,
+-	REF_TYPE_ATTRIBUTE
++	REF_TYPE_ATTRIBUTE,
++	REF_TYPE_ARRAY_SHAPE_ELEMENT
+ } reflection_type_t;
+ 
+ /* Struct for reflection objects */
+@@ -270,6 +281,12 @@ static void reflection_free_objects_storage(zend_object *object) /* {{{ */
+ 			efree(intern->ptr);
+ 			break;
+ 		}
++		case REF_TYPE_ARRAY_SHAPE_ELEMENT: {
++			array_shape_element_reference *elem_ref = intern->ptr;
++			zend_string_release(elem_ref->key);
++			efree(elem_ref);
++			break;
++		}
+ 		case REF_TYPE_GENERATOR:
+ 		case REF_TYPE_FIBER:
+ 		case REF_TYPE_CLASS_CONSTANT:
+@@ -1480,7 +1497,9 @@ static void reflection_parameter_factory(zend_function *fptr, zval *closure_obje
+ typedef enum {
+ 	NAMED_TYPE = 0,
+ 	UNION_TYPE = 1,
+-	INTERSECTION_TYPE = 2
++	INTERSECTION_TYPE = 2,
++	ARRAY_TYPE = 3,
++	ARRAY_SHAPE_TYPE = 4
+ } reflection_type_kind;
+ 
+ /* For backwards compatibility reasons, we need to return T|null style unions
+@@ -1490,6 +1509,16 @@ typedef enum {
+ static reflection_type_kind get_type_kind(zend_type type) {
+ 	uint32_t type_mask_without_null = ZEND_TYPE_PURE_MASK_WITHOUT_NULL(type);
+ 
++	/* Check for array shapes (array{key: type, ...}) first */
++	if (ZEND_TYPE_HAS_ARRAY_SHAPE(type)) {
++		return ARRAY_SHAPE_TYPE;
++	}
++
++	/* Check for typed arrays (array<T> or array<K, V>) */
++	if (ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
++		return ARRAY_TYPE;
++	}
++
+ 	if (ZEND_TYPE_HAS_LIST(type)) {
+ 		if (ZEND_TYPE_IS_INTERSECTION(type)) {
+ 			return INTERSECTION_TYPE;
+@@ -1537,6 +1566,12 @@ static void reflection_type_factory(zend_type type, zval *object, bool legacy_be
+ 		case NAMED_TYPE:
+ 			object_init_ex(object, reflection_named_type_ptr);
+ 			break;
++		case ARRAY_TYPE:
++			object_init_ex(object, reflection_array_type_ptr);
++			break;
++		case ARRAY_SHAPE_TYPE:
++			object_init_ex(object, reflection_array_shape_type_ptr);
++			break;
+ 		EMPTY_SWITCH_DEFAULT_CASE();
+ 	}
+ 
+@@ -3262,6 +3297,171 @@ ZEND_METHOD(ReflectionIntersectionType, getTypes)
+ }
+ /* }}} */
+ 
++/* {{{ Returns the element (value) type of the typed array */
++ZEND_METHOD(ReflectionArrayType, getElementType)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_typed_array_element *elem_type;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_ELEMENT(param->type));
++	elem_type = ZEND_TYPED_ARRAY_ELEMENT(param->type);
++
++	reflection_type_factory(elem_type->element_type, return_value, 0);
++}
++/* }}} */
++
++/* {{{ Returns the key type of the typed array, or null if not specified */
++ZEND_METHOD(ReflectionArrayType, getKeyType)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_typed_array_element *elem_type;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_ELEMENT(param->type));
++	elem_type = ZEND_TYPED_ARRAY_ELEMENT(param->type);
++
++	if (!ZEND_TYPED_ARRAY_HAS_KEY_TYPE(elem_type)) {
++		RETURN_NULL();
++	}
++
++	reflection_type_factory(elem_type->key_type, return_value, 0);
++}
++/* }}} */
++
++/* {{{ Returns whether a key type was explicitly specified */
++ZEND_METHOD(ReflectionArrayType, hasKeyType)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_typed_array_element *elem_type;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_ELEMENT(param->type));
++	elem_type = ZEND_TYPED_ARRAY_ELEMENT(param->type);
++
++	RETURN_BOOL(ZEND_TYPED_ARRAY_HAS_KEY_TYPE(elem_type));
++}
++/* }}} */
++
++/* {{{ Returns an array of ReflectionArrayShapeElement objects */
++ZEND_METHOD(ReflectionArrayShapeType, getElements)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_array_shape *shape;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_SHAPE(param->type));
++	shape = ZEND_ARRAY_SHAPE(param->type);
++
++	array_init_size(return_value, shape->num_elements);
++
++	for (uint32_t i = 0; i < shape->num_elements; i++) {
++		const zend_array_shape_element *elem = &shape->elements[i];
++		zval element_obj;
++		reflection_object *elem_intern;
++		array_shape_element_reference *elem_ref;
++
++		object_init_ex(&element_obj, reflection_array_shape_element_ptr);
++		elem_intern = Z_REFLECTION_P(&element_obj);
++
++		elem_ref = emalloc(sizeof(array_shape_element_reference));
++		elem_ref->key = zend_string_copy(elem->key);
++		elem_ref->type = elem->type;
++		elem_ref->is_optional = elem->is_optional;
++
++		elem_intern->ptr = elem_ref;
++		elem_intern->ref_type = REF_TYPE_ARRAY_SHAPE_ELEMENT;
++
++		zend_hash_next_index_insert(Z_ARRVAL_P(return_value), &element_obj);
++	}
++}
++/* }}} */
++
++/* {{{ Returns the number of elements in the shape */
++ZEND_METHOD(ReflectionArrayShapeType, getElementCount)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_array_shape *shape;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_SHAPE(param->type));
++	shape = ZEND_ARRAY_SHAPE(param->type);
++
++	RETURN_LONG(shape->num_elements);
++}
++/* }}} */
++
++/* {{{ Returns the number of required (non-optional) elements in the shape */
++ZEND_METHOD(ReflectionArrayShapeType, getRequiredElementCount)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_array_shape *shape;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_SHAPE(param->type));
++	shape = ZEND_ARRAY_SHAPE(param->type);
++
++	RETURN_LONG(shape->num_required);
++}
++/* }}} */
++
++/* {{{ Returns the key name of this array shape element */
++ZEND_METHOD(ReflectionArrayShapeElement, getName)
++{
++	reflection_object *intern;
++	array_shape_element_reference *elem_ref;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(elem_ref);
++
++	RETURN_STR_COPY(elem_ref->key);
++}
++/* }}} */
++
++/* {{{ Returns the type of this array shape element */
++ZEND_METHOD(ReflectionArrayShapeElement, getType)
++{
++	reflection_object *intern;
++	array_shape_element_reference *elem_ref;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(elem_ref);
++
++	reflection_type_factory(elem_ref->type, return_value, 0);
++}
++/* }}} */
++
++/* {{{ Returns whether this array shape element is optional */
++ZEND_METHOD(ReflectionArrayShapeElement, isOptional)
++{
++	reflection_object *intern;
++	array_shape_element_reference *elem_ref;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(elem_ref);
++
++	RETURN_BOOL(elem_ref->is_optional);
++}
++/* }}} */
++
+ /* {{{ Constructor. Throws an Exception in case the given method does not exist */
+ static void instantiate_reflection_method(INTERNAL_FUNCTION_PARAMETERS, bool is_constructor)
+ {
+@@ -7975,6 +8175,18 @@ PHP_MINIT_FUNCTION(reflection) /* {{{ */
+ 	reflection_intersection_type_ptr->create_object = reflection_objects_new;
+ 	reflection_intersection_type_ptr->default_object_handlers = &reflection_object_handlers;
+ 
++	reflection_array_type_ptr = register_class_ReflectionArrayType(reflection_type_ptr);
++	reflection_array_type_ptr->create_object = reflection_objects_new;
++	reflection_array_type_ptr->default_object_handlers = &reflection_object_handlers;
++
++	reflection_array_shape_type_ptr = register_class_ReflectionArrayShapeType(reflection_type_ptr);
++	reflection_array_shape_type_ptr->create_object = reflection_objects_new;
++	reflection_array_shape_type_ptr->default_object_handlers = &reflection_object_handlers;
++
++	reflection_array_shape_element_ptr = register_class_ReflectionArrayShapeElement();
++	reflection_array_shape_element_ptr->create_object = reflection_objects_new;
++	reflection_array_shape_element_ptr->default_object_handlers = &reflection_object_handlers;
++
+ 	reflection_method_ptr = register_class_ReflectionMethod(reflection_function_abstract_ptr);
+ 	reflection_method_ptr->create_object = reflection_objects_new;
+ 	reflection_method_ptr->default_object_handlers = &reflection_object_handlers;
+diff --git a/ext/reflection/php_reflection.h b/ext/reflection/php_reflection.h
+index d676597f..e5cf169d 100644
+--- a/ext/reflection/php_reflection.h
++++ b/ext/reflection/php_reflection.h
+@@ -35,6 +35,7 @@ extern PHPAPI zend_class_entry *reflection_function_ptr;
+ extern PHPAPI zend_class_entry *reflection_parameter_ptr;
+ extern PHPAPI zend_class_entry *reflection_type_ptr;
+ extern PHPAPI zend_class_entry *reflection_named_type_ptr;
++extern PHPAPI zend_class_entry *reflection_array_type_ptr;
+ extern PHPAPI zend_class_entry *reflection_class_ptr;
+ extern PHPAPI zend_class_entry *reflection_object_ptr;
+ extern PHPAPI zend_class_entry *reflection_method_ptr;
+diff --git a/ext/reflection/php_reflection.stub.php b/ext/reflection/php_reflection.stub.php
+index 91c70d6f..35b4270c 100644
+--- a/ext/reflection/php_reflection.stub.php
++++ b/ext/reflection/php_reflection.stub.php
+@@ -744,6 +744,44 @@ class ReflectionIntersectionType extends ReflectionType
+     public function getTypes(): array {}
+ }
+ 
++class ReflectionArrayType extends ReflectionType
++{
++    /** Get the element (value) type of the array */
++    public function getElementType(): ReflectionType {}
++
++    /** Get the key type of the array, or null if not specified */
++    public function getKeyType(): ?ReflectionType {}
++
++    /** Check if a key type was explicitly specified */
++    public function hasKeyType(): bool {}
++}
++
++/** Represents an array shape type like array{name: string, age?: int} */
++class ReflectionArrayShapeType extends ReflectionType
++{
++    /** Get the elements defined in the shape */
++    public function getElements(): array {}
++
++    /** Get the number of elements in the shape */
++    public function getElementCount(): int {}
++
++    /** Get the number of required (non-optional) elements */
++    public function getRequiredElementCount(): int {}
++}
++
++/** Represents an element in an array shape type */
++class ReflectionArrayShapeElement
++{
++    /** Get the key name */
++    public function getName(): string {}
++
++    /** Get the type of this element */
++    public function getType(): ReflectionType {}
++
++    /** Check if this element is optional */
++    public function isOptional(): bool {}
++}
++
+ /** @not-serializable */
+ class ReflectionExtension implements Reflector
+ {
+diff --git a/ext/reflection/php_reflection_arginfo.h b/ext/reflection/php_reflection_arginfo.h
+index bee9cbfc764a8500ccaf8b7c264fe00fc5d17e70..d9eb0ecdb374f2629045a65d7ec1872d231fe235 100644
+GIT binary patch
+delta 1402
+zcmX@}l<jvj`vf2DWJ~iT^VCFRL(9}u!_?#?GgE`a6!XNCq{QS@<3tP7BujH+^OUqi
+z1ugx_2hDsY3mg>QcrB}Na&5izWQQgd5yzsU#LAG$g4Fo*)DqX6)ZEm(lF5vMGLwaQ
+zEd)>`y;CbE7ewey-jISUk&##olX$NzG5Nl*f;d=La7JQ5DvG(2`AZEZCmd&=oLA33
+z*`Y{528X)566gHV$p^!vCnreqPOh&rPzE^>#k`=@!qUv5)D)<D(bNmT)x-Srp*EZk
+zRd8}miZXV;Ux-nYM7RuULVRYie?duR{^W@<shbmuE;u9f>L|biZt})Wa)R(M151Fy
+zX8s0QWKn2{0Y$|S_JBePX3}Kd-SRSU=OW91A_wHz!1>auSoC5E7NAOq-Qe(pg-75<
+zB`l(AH(?X)+pN0TU|U}<E7-#621<--SUo@8L4;8rA%m2hraN#lY9WUJFu;J}GTl*x
+zQ4S-CVJL<K7rJ7oXn_c0Bo`tiz^=m)s?#SJGAf9m1S`~y(+?Oj>fjIXgD++9CfDhX
+znv5DmMhVa?6@-&vSp+lgKxRr$f3L`B!;er7j=|{yHjFA*A~5i;GN$PC1_MTYj4UzT
+zo`X?Y6wTbc5>SYMV?YW+N=E^j2d4Y;Fv=o@23i)$OU#-4@rWeY;gb`JxTfD<z{tM+
+zyfR~c4KxWg%w?>GFsIF96z2rn1PX@f2i+NCr`OJ73`LGokZL48NDCjraj5#R_&#?j
+zqdz2(A?1MSA6ytkFhcd?21ftsSDYAqrk_(~<e7eB5o6Kh>{8C@;fooCK|a|I^vPR6
+E03pl{Qvd(}
+
+delta 133
+zcmey}%zox6+XNr&v=lQF(?o+LgOns=%M?qK<U}J=AS*2`)yyQtJk7u~DKW(?DK$|+
+zOMmh~GoQ(#$Avdu%PO2~P@*v1z?hM1^UShi&Xf7}ac_3m)0_(yn$EX@k$t;>K4X3j
+dh|f8leG_BRWbI1M>1~@Bg~3X;1C_iL1OOz5EnENq
+
+diff --git a/ext/reflection/tests/ReflectionExtension_getClasses_basic.phpt b/ext/reflection/tests/ReflectionExtension_getClasses_basic.phpt
+index 8ba243a5..dc32bbda 100644
+--- a/ext/reflection/tests/ReflectionExtension_getClasses_basic.phpt
++++ b/ext/reflection/tests/ReflectionExtension_getClasses_basic.phpt
+@@ -8,7 +8,7 @@
+ var_dump($ext->getClasses());
+ ?>
+ --EXPECTF--
+-array(26) {
++array(29) {
+   ["ReflectionException"]=>
+   object(ReflectionClass)#%d (1) {
+     ["name"]=>
+@@ -64,6 +64,21 @@
+     ["name"]=>
+     string(26) "ReflectionIntersectionType"
+   }
++  ["ReflectionArrayType"]=>
++  object(ReflectionClass)#%d (1) {
++    ["name"]=>
++    string(19) "ReflectionArrayType"
++  }
++  ["ReflectionArrayShapeType"]=>
++  object(ReflectionClass)#%d (1) {
++    ["name"]=>
++    string(24) "ReflectionArrayShapeType"
++  }
++  ["ReflectionArrayShapeElement"]=>
++  object(ReflectionClass)#%d (1) {
++    ["name"]=>
++    string(27) "ReflectionArrayShapeElement"
++  }
+   ["ReflectionMethod"]=>
+   object(ReflectionClass)#%d (1) {
+     ["name"]=>
+-- 
+2.43.0
+

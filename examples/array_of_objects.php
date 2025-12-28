@@ -12,7 +12,6 @@ function getUsers(): array<Person>
     return [
         new Person(1, 'first', 'name'),
         new Person(2, 'other', 'name'),
-        1
     ];
 }
 

@@ -1,7 +1,7 @@
 From 620308331f30f41ce32cdc37a25287b4a4bc5962 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:32 +0100
-Subject: [PATCH 01/22] Add parser support for array<T> type syntax
+Subject: [PATCH 01/23] Add parser support for array<T> type syntax
 
 Extend the PHP parser to recognize the array<T> syntax for
 homogeneous array type declarations in return types.
@@ -43,7 +43,7 @@ index e4d61006..f9a17d5b 100644
 From 3ff56469b5cce9e46eadd46a645c295514f44a71 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:43 +0100
-Subject: [PATCH 02/22] Add ZEND_AST_TYPE_ARRAY_OF AST node type
+Subject: [PATCH 02/23] Add ZEND_AST_TYPE_ARRAY_OF AST node type
 
 Define new AST node kind for array<T> type syntax representation.
 
@@ -94,7 +94,7 @@ index fb48b187..12a66bf6 100644
 From 7085586ffff8d0a1225d8ae52262c07b85fc39b5 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:57:53 +0100
-Subject: [PATCH 03/22] Add ZEND_TYPE_HAS_ARRAY_ELEMENT macro for array<T>
+Subject: [PATCH 03/23] Add ZEND_TYPE_HAS_ARRAY_ELEMENT macro for array<T>
  detection
 
 Introduce a macro to detect when a zend_type contains array element
@@ -133,7 +133,7 @@ index a3d3e4da..a2f193af 100644
 From c3e46bd1badb6d84f46fb5ad422d8c7c4ad6485b Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:05 +0100
-Subject: [PATCH 04/22] Add strict_arrays directive and array element type
+Subject: [PATCH 04/23] Add strict_arrays directive and array element type
  structures
 
 Introduce support for declare(strict_arrays=1) directive and define
@@ -210,7 +210,7 @@ index c07fa9bf..3d0780cf 100644
 From 3ef5c87ebce71258c7569ad789232d4182157ab3 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:20 +0100
-Subject: [PATCH 05/22] Implement array<T> type compilation and strict_arrays
+Subject: [PATCH 05/23] Implement array<T> type compilation and strict_arrays
  directive
 
 Handle compilation of array<T> type syntax and declare(strict_arrays=1)
@@ -339,7 +339,7 @@ index 8be1ee14..71a3618e 100644
 From db849918f55f8753c7cdf03fce7ae145d548af57 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:31 +0100
-Subject: [PATCH 06/22] Declare array element type validation functions
+Subject: [PATCH 06/23] Declare array element type validation functions
 
 Add function declarations for runtime array<T> element validation.
 
@@ -378,7 +378,7 @@ index c08adf2a..73f403ad 100644
 From f7c4fefa99465a9e56c742e549db6537778e5e71 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:42 +0100
-Subject: [PATCH 07/22] Implement runtime array element type validation
+Subject: [PATCH 07/23] Implement runtime array element type validation
 
 Add functions to validate array elements against array<T> type at
 runtime when strict_arrays=1 is enabled.
@@ -507,7 +507,7 @@ index 5665cc0c..84aecb03 100644
 From e76b5335dafd309a5ef57abe528d1a9f96e0275d Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:58:59 +0100
-Subject: [PATCH 08/22] Integrate array<T> validation in VERIFY_RETURN_TYPE
+Subject: [PATCH 08/23] Integrate array<T> validation in VERIFY_RETURN_TYPE
  opcode
 
 Modify the ZEND_VERIFY_RETURN_TYPE opcode handler to validate array
@@ -557,7 +557,7 @@ index 90247b3c..fee38710 100644
 From a0d62e871dbd40509cff22c53692bf25bdebc510 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 15:59:10 +0100
-Subject: [PATCH 09/22] Regenerate VM executor with array<T> validation support
+Subject: [PATCH 09/23] Regenerate VM executor with array<T> validation support
 
 Regenerate zend_vm_execute.h from zend_vm_def.h using zend_vm_gen.php.
 
@@ -609,7 +609,7 @@ zG}f#gsA0`oOFaQmP$0%y>dC_PUXO+t;WV6qI3!>kl8}NlOu!_Z1r^axeX9Qj$JQXb
 From 08dd8deb20bc445bfb69c76f13652e40aced7bd2 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 16:17:28 +0100
-Subject: [PATCH 10/22] Optimize array element type validation for
+Subject: [PATCH 10/23] Optimize array element type validation for
  declare(strict_arrays=1)
 
 Key performance optimizations:
@@ -865,7 +865,7 @@ index 84aecb03..d8f1c07b 100644
 From 41ea44a33db598810d0d93e47b70eacc36854441 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sat, 27 Dec 2025 16:35:01 +0100
-Subject: [PATCH 11/22] Add comprehensive performance optimizations for
+Subject: [PATCH 11/23] Add comprehensive performance optimizations for
  array<T> validation
 
 Implements multiple optimization strategies to minimize runtime overhead
@@ -1236,7 +1236,7 @@ index a2f193af..18a0d16b 100644
 From 31e545580a81c1617ed6bc146939c10966ff116f Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 12:14:32 +0100
-Subject: [PATCH 12/22] Add union type support for array<T> element types
+Subject: [PATCH 12/23] Add union type support for array<T> element types
 
 This commit enables union types inside the array<T> syntax, allowing
 declarations like array<int|string>, array<int|MyObject>, and
@@ -1653,7 +1653,7 @@ index 26a302e4..06dc61a2 100644
 From 444764bbc064b5bfe71123d09dbaf6f7409b09ac Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:31:16 +0100
-Subject: [PATCH 13/22] Add nested array support for array<array<T>> syntax
+Subject: [PATCH 13/23] Add nested array support for array<array<T>> syntax
 
 - Parser: Handle >> (T_SR) token in nested array type declarations
   Supports up to 4 levels of nesting (array<array<array<array<T>>>>)
@@ -1917,7 +1917,7 @@ index f9a17d5b..2701f329 100644
 From dd378947825778b0a1e4f998faf9532384b1c2a8 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 15:56:37 +0100
-Subject: [PATCH 14/22] Add array<T> parameter type validation
+Subject: [PATCH 14/23] Add array<T> parameter type validation
 
 - Add zend_verify_array_arg_element_types() for parameter validation
 - Add zend_verify_array_arg_element_type_error() for proper argument error messages
@@ -2188,7 +2188,7 @@ s7=ck3!-(Pd_V0(B^t=;Z&M1dr7>5anz$8q;G|WI0W+BFu!?+{+4ahycP5=M^
 From 1f7ff3ec718c1fdfeed6e7475dd9530003834f36 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 16:29:07 +0100
-Subject: [PATCH 15/22] Add key types (array<K, V>) and property type support
+Subject: [PATCH 15/23] Add key types (array<K, V>) and property type support
  for strict_arrays
 
 - Add array<K, V> syntax for specifying key types (int, string, or int|string)
@@ -2638,7 +2638,7 @@ index 67257913..c723e4d6 100644
 From 19af69da6325cec7a709e7548873dc055f9c0681 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 20:07:46 +0100
-Subject: [PATCH 16/22] Add array shape types (array{key: type}) with
+Subject: [PATCH 16/23] Add array shape types (array{key: type}) with
  reflection support
 
 This commit adds support for array shape return types with the following features:
@@ -6878,7 +6878,7 @@ index 8ba243a5..dc32bbda 100644
 From bb2b2a65df93458d9bc5117518ed67b0abb37b87 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 20:40:25 +0100
-Subject: [PATCH 17/22] Fix segfault in escape analysis for array shapes
+Subject: [PATCH 17/23] Fix segfault in escape analysis for array shapes
 
 The escape analysis code was incorrectly treating array shape types
 the same as array<T> types. For array shapes, the type.ptr points to
@@ -6912,7 +6912,7 @@ index 52c80623..cf995f7d 100644
 From d18172cbd948cc2348aebbb8fb5d96ef6741b00e Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 22:41:59 +0100
-Subject: [PATCH 18/22] Add tests for array shapes and typed arrays
+Subject: [PATCH 18/23] Add tests for array shapes and typed arrays
 
 Tests cover:
 - Parameter type shapes (basic, missing key, wrong type, optional keys, nested)
@@ -7224,7 +7224,7 @@ index 00000000..0134821d
 From 4918c0e114d2dc4af9d173be866c2861e2d9cc44 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@signalforge.eu>
 Date: Sun, 28 Dec 2025 22:56:17 +0100
-Subject: [PATCH 19/22] Add parameter shape overhead benchmarks
+Subject: [PATCH 19/23] Add parameter shape overhead benchmarks
 
 ---
  benchmarks/param_shape_compare.php   | 220 +++++++++++++++++++++++++++
@@ -7818,14 +7818,11 @@ index 00000000..305d0771
 2.43.0
 
 
-From 050c524bc5e5ad3a90df9d975e7d7ca542b9458b Mon Sep 17 00:00:00 2001
+From 4b8e93ccafbc974bd1b1c55b8d6c2ba63de56fbf Mon Sep 17 00:00:00 2001
 From: Nikola Bursac <nikola.bursac@proton.me>
 Date: Sun, 28 Dec 2025 23:50:47 +0100
-Subject: [PATCH 20/22] Refactor shape validation and fix nested array<T>
+Subject: [PATCH 20/23] Refactor shape validation and fix nested array<T>
  parsing
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 - Refactor duplicated zend_verify_array_shape/zend_verify_array_arg_shape
   into shared zend_check_array_shape core with separate error reporters
@@ -7833,10 +7830,6 @@ Content-Transfer-Encoding: 8bit
   (tracks depth via type_angle_depth counter, splits >> into two >)
 - Simplify parser grammar - remove mechanical depth-4 enumeration,
   now supports arbitrary nesting depth recursively
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_execute.c          | 123 +++++++++++++++++++++--------------
  Zend/zend_globals.h          |   1 +
@@ -8088,21 +8081,14 @@ index 7ca79ab9..63ec131e 100644
 2.43.0
 
 
-From 7008685d4d1a638ff70324919ceb2ddac7474b1a Mon Sep 17 00:00:00 2001
+From 6217e2070374aee38218233af11ad6a43223d5e6 Mon Sep 17 00:00:00 2001
 From: Nikola Bursac <nikola.bursac@proton.me>
 Date: Tue, 30 Dec 2025 19:48:00 +0100
-Subject: [PATCH 21/22] Use macro to generate packed array validators
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+Subject: [PATCH 21/23] Use macro to generate packed array validators
 
 Consolidate nearly-identical zend_verify_packed_array_elements_long and
 zend_verify_packed_array_elements_string into DEFINE_VERIFY_PACKED_ELEMENTS
 macro. Clean up verbose comments in helper functions.
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_execute.c | 252 ++++++++++++--------------------------------
  1 file changed, 65 insertions(+), 187 deletions(-)
@@ -8449,17 +8435,11 @@ index be7882da..872ad7fc 100644
 2.43.0
 
 
-From 07dc785cdf0ad84ad7ec6ff9d540236ae8fceb03 Mon Sep 17 00:00:00 2001
+From df87d08998ecbf16d5d7bc2700ad2a102cc5172c Mon Sep 17 00:00:00 2001
 From: Nikola Bursac <nikola.bursac@proton.me>
 Date: Tue, 30 Dec 2025 20:03:29 +0100
-Subject: [PATCH 22/22] Remove verbose inline comments
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
+Subject: [PATCH 22/23] Remove verbose inline comments
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_compile.c | 14 +++-----------
  Zend/zend_execute.c | 16 +++++-----------
@@ -8577,6 +8557,90 @@ index 872ad7fc..bd39b79a 100644
  			if (!zend_verify_nested_array_type(val, element_type)) {
  				return false;
  			}
+-- 
+2.43.0
+
+
+From 6cb66df87a1e6dfef97eb4c805815e809b76ef5f Mon Sep 17 00:00:00 2001
+From: Nikola Bursac <nikola.bursac@proton.me>
+Date: Tue, 30 Dec 2025 23:24:48 +0100
+Subject: [PATCH 23/23] Fix reflection __toString for array shapes and typed
+ arrays
+
+- array<T> now returns 'array<int>' instead of 'array'
+- array<K,V> now returns 'array<string, int>' instead of 'array'
+- array{key: type} now returns full shape notation
+- Supports nested types correctly
+- Also fixed stray '+' character in zend_execute.c
+---
+ Zend/zend_compile.c | 47 ++++++++++++++++++++++++++++++++++++++++++++-
+ 1 file changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
+index ca9d1f24..f72fec5e 100644
+--- a/Zend/zend_compile.c
++++ b/Zend/zend_compile.c
+@@ -38,6 +38,7 @@
+ #include "zend_call_stack.h"
+ #include "zend_frameless_function.h"
+ #include "zend_property_hooks.h"
++#include "zend_smart_str.h"
+ 
+ #define SET_NODE(target, src) do { \
+ 		target ## _type = (src)->op_type; \
+@@ -1478,7 +1479,51 @@ zend_string *zend_type_to_string_resolved(const zend_type type, zend_class_entry
+ 		str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_OBJECT), /* is_intersection */ false);
+ 	}
+ 	if (type_mask & MAY_BE_ARRAY) {
+-		str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_ARRAY), /* is_intersection */ false);
++		if (ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
++			zend_typed_array_element *elem = ZEND_TYPED_ARRAY_ELEMENT(type);
++			zend_string *elem_str = zend_type_to_string(elem->element_type);
++			if (ZEND_TYPED_ARRAY_HAS_KEY_TYPE(elem)) {
++				zend_string *key_str = zend_type_to_string(elem->key_type);
++				zend_string *array_str = zend_string_concat3(
++					"array<", 6, ZSTR_VAL(key_str), ZSTR_LEN(key_str), ", ", 2);
++				zend_string *full_str = zend_string_concat3(
++					ZSTR_VAL(array_str), ZSTR_LEN(array_str),
++					ZSTR_VAL(elem_str), ZSTR_LEN(elem_str), ">", 1);
++				zend_string_release(key_str);
++				zend_string_release(array_str);
++				zend_string_release(elem_str);
++				str = add_type_string(str, full_str, /* is_intersection */ false);
++				zend_string_release(full_str);
++			} else {
++				zend_string *array_str = zend_string_concat3(
++					"array<", 6, ZSTR_VAL(elem_str), ZSTR_LEN(elem_str), ">", 1);
++				zend_string_release(elem_str);
++				str = add_type_string(str, array_str, /* is_intersection */ false);
++				zend_string_release(array_str);
++			}
++		} else if (ZEND_TYPE_HAS_ARRAY_SHAPE(type)) {
++			zend_array_shape *shape = ZEND_ARRAY_SHAPE(type);
++			smart_str buf = {0};
++			smart_str_appends(&buf, "array{");
++			for (uint32_t i = 0; i < shape->num_elements; i++) {
++				if (i > 0) {
++					smart_str_appends(&buf, ", ");
++				}
++				zend_array_shape_element *elem = &shape->elements[i];
++				smart_str_append(&buf, elem->key);
++				if (elem->is_optional) {
++					smart_str_appendc(&buf, '?');
++				}
++				smart_str_appends(&buf, ": ");
++				zend_string *elem_type_str = zend_type_to_string(elem->type);
++				smart_str_append(&buf, elem_type_str);
++				zend_string_release(elem_type_str);
++			}
++			smart_str_appendc(&buf, '}');
++			str = add_type_string(str, smart_str_extract(&buf), /* is_intersection */ false);
++		} else {
++			str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_ARRAY), /* is_intersection */ false);
++		}
+ 	}
+ 	if (type_mask & MAY_BE_STRING) {
+ 		str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_STRING), /* is_intersection */ false);
 -- 
 2.43.0
 

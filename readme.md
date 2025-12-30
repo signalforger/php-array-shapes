@@ -17,10 +17,11 @@
 - [Proposal](#proposal)
   - [Syntax](#syntax)
     - [Homogeneous Arrays](#1-homogeneous-arrays-arrayt)
-    - [Array Shapes](#2-array-shapes-arraykey-type-)
-    - [Optional Keys](#3-optional-keys-arraykey-type)
-    - [Parameter Types](#4-parameter-types)
-    - [Nested Structures](#5-nested-structures)
+    - [Map Types](#2-map-types-arrayk-v)
+    - [Array Shapes](#3-array-shapes-arraykey-type-)
+    - [Optional Keys](#4-optional-keys-arraykey-type)
+    - [Parameter Types](#5-parameter-types)
+    - [Nested Structures](#6-nested-structures)
   - [Semantics](#semantics)
     - [Runtime Validation Control](#runtime-validation-control-declarestrict_arrays1)
     - [Validation Rules](#validation-rules)
@@ -203,7 +204,7 @@ Native types work in any PHP-aware editor immediately. Docblock-based types requ
 
 ### Syntax
 
-This RFC introduces two new type declaration syntaxes for array types (both return types and parameter types):
+This RFC introduces three new type declaration syntaxes for array types (both return types and parameter types):
 
 #### 1. Homogeneous Arrays: `array<T>`
 
@@ -218,7 +219,25 @@ function getTags(): array<string> {
 }
 ```
 
-#### 2. Array Shapes: `array{key: type, ...}`
+#### 2. Map Types: `array<K, V>`
+
+An array with typed keys and typed values:
+```php
+function getScores(): array<string, int> {
+    return ['alice' => 100, 'bob' => 85, 'charlie' => 92];
+}
+
+function getIndexedNames(): array<int, string> {
+    return [0 => 'first', 1 => 'second', 2 => 'third'];
+}
+
+// Key type must be int, string, or int|string
+function getMixed(): array<int|string, float> {
+    return [0 => 1.5, 'pi' => 3.14];
+}
+```
+
+#### 3. Array Shapes: `array{key: type, ...}`
 
 An array with a defined structure:
 ```php
@@ -235,7 +254,7 @@ function getCoordinates(): array{0: float, 1: float} {
 }
 ```
 
-#### 3. Optional Keys: `array{key?: type}`
+#### 4. Optional Keys: `array{key?: type}`
 
 Keys marked with `?` are optional and don't need to be present:
 ```php
@@ -250,7 +269,7 @@ function getFullConfig(): array{host: string, port?: int, ssl?: bool} {
 }
 ```
 
-#### 4. Parameter Types
+#### 5. Parameter Types
 
 Array shapes and typed arrays work as parameter types too:
 ```php
@@ -272,7 +291,7 @@ function transformUser(
 }
 ```
 
-#### 5. Nested Structures
+#### 6. Nested Structures
 
 Both syntaxes can be nested:
 ```php
@@ -799,6 +818,46 @@ static zend_always_inline bool zend_verify_packed_array_elements_long(zval *data
 | Return fresh arrays (large) | Loop unrolling + prefetch | **~15-20%** |
 | Return object arrays | Full validation | **~200-250%** |
 
+### Parameter Shape Validation Overhead
+
+Array shapes can also be used as parameter types. This section benchmarks the overhead of validating shaped parameters compared to plain `array` type hints.
+
+#### Micro-Benchmark Results (Empty Function Bodies)
+
+Testing with 1,000,000 iterations per test case:
+
+| Shape Complexity | Plain (ms) | Shaped (ms) | Overhead | Per-call |
+|------------------|------------|-------------|----------|----------|
+| 2 keys (Point) | ~16 ms | ~53 ms | **~230%** | ~37 ns |
+| 4 keys (User) | ~16 ms | ~68 ms | **~325%** | ~52 ns |
+| 5 keys (Config) | ~16 ms | ~78 ms | **~388%** | ~62 ns |
+| 6 keys nested (2+2+2) | ~18 ms | ~89 ms | **~395%** | ~71 ns |
+
+**Note:** These percentages appear high because the function bodies are empty - we're measuring *only* the validation overhead. The actual impact depends on how much work the function performs.
+
+#### Realistic Benchmark Results (Function with Actual Work)
+
+Testing a function that loops through items and calculates order totals (500,000 iterations):
+
+| Scenario | Time | Notes |
+|----------|------|-------|
+| Plain array (no validation) | ~202 ms | No shape checking |
+| Array shape (5 keys in + 4 keys out) | ~250 ms | Full shape validation |
+| **Absolute overhead** | ~48 ms | |
+| **Relative overhead** | **~24%** | In context of real work |
+| **Per-call overhead** | ~96 ns | |
+
+**Key insight:** When functions perform actual work (database queries, calculations, I/O), the validation overhead becomes a much smaller percentage of total execution time.
+
+#### Parameter Shape Overhead Summary
+
+| Scenario | Expected Overhead |
+|----------|-------------------|
+| Empty functions (micro-benchmark) | ~200-400% |
+| Light work (simple calculations) | ~20-50% |
+| Medium work (loops, string ops) | ~10-25% |
+| Heavy work (I/O, database) | **<5%** |
+
 ### When to Use `declare(strict_arrays=1)`
 
 - **Development/testing:** Enable validation to catch type errors early
@@ -1045,14 +1104,14 @@ function getConfig(): readonly array{host: string, port: int} {
 
 This RFC focuses on type validation; immutability can build on top of array shapes in a follow-up proposal.
 
-#### 7. Map Types (Typed Keys)
+#### 7. Map Types (Typed Keys) ✓ IMPLEMENTED
 ```php
-function getScores(): array<string, int> {  // string keys, int values
-    // Not in this RFC
+function getScores(): array<string, int> {
+    return ['alice' => 100, 'bob' => 85];  // ✓ Works - validates keys are strings, values are ints
 }
 ```
 
-**Rationale:** Adds complexity to validation (must check all keys are strings). Current `array<T>` validates values only. Map types with typed keys could be a future extension.
+**Status:** Implemented in this version. The `array<K, V>` syntax validates both key types (int, string, or int|string only) and value types.
 
 ## Comparison with Other Languages
 
@@ -1433,14 +1492,14 @@ Both together provide defense in depth.
 - No `declare(strict_arrays=1)` = no validation overhead
 - Static analyzers can read native types (better than parsing docblocks)
 
-### "Why return types only? What about parameters?"
+### "Why not property types?"
 
-**Response:** This RFC intentionally limits scope to return types:
+**Response:** This RFC supports both return types AND parameter types, but intentionally excludes property types:
 
-- **Simpler implementation**: Single validation point
-- **Cleaner semantics**: No variance complications with parameters
-- **Easier adoption**: Can be added incrementally
-- **Future extensibility**: Parameter types can be a follow-up RFC
+- **Different validation timing**: Properties require validation on every write, not just at function boundaries
+- **Performance implications**: Write-time validation would affect all array assignments
+- **Complexity**: Property variance rules differ from parameter/return variance
+- **Future extensibility**: Property types can be a follow-up RFC after gathering feedback on boundary validation
 
 ### "Won't this make error messages confusing?"
 
@@ -1506,7 +1565,8 @@ Required majority: 2/3
 
 - **v1.0 (2024-12-25):** Initial draft
 - **v1.1 (2025-12-27):** Added performance optimizations (type tagging cache, loop unrolling, escape analysis)
-- **v1.2 (TBD):** After discussion period
+- **v1.2 (2025-12-28):** Added parameter type validation, `array<K, V>` map types, optional keys support
+- **v1.3 (2025-12-30):** Code cleanup, fixed nested `array<array<T>>` parsing with lexer-level `>>` splitting
 
 ## References
 

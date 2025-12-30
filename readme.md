@@ -874,12 +874,12 @@ Testing a function that loops through items and calculates order totals (500,000
 
 ## Implementation
 
-### Estimated Scope
+### Implementation Stats
 
-- **Lines of code:** ~1,200 LOC (including optimizations)
+- **Lines of code:** ~1,500 LOC (including optimizations)
 - **Files modified:** 9 core files
-- **Implementation time:** 1-2 weeks for experienced contributor
-- **Test coverage:** ~500 LOC in tests
+- **Test coverage:** 10 test files covering all features
+- **Status:** Complete working implementation
 
 ### Modified Files
 ```
@@ -916,16 +916,18 @@ typedef struct _zend_array_of {
 } zend_array_of;
 ```
 
-### Prototype
+### Source Code
 
-A working prototype is available at: [GitHub Pull Request Link]
+The complete implementation is available at:
+- **Fork:** https://github.com/signalforger/php-src/tree/feature/array-shapes
+- **Patch:** https://github.com/signalforger/php-array-shapes/blob/main/patches/array-shapes.patch
+- **Build script:** https://github.com/signalforger/php-array-shapes/blob/main/build-php-array-shapes.sh
 
-The implementation demonstrates:
-- Complete parser integration
-- Type compilation and storage
-- Runtime validation
-- Reflection support
-- Comprehensive test coverage
+The implementation includes:
+- Complete parser integration with lexer-level `>>` splitting for nested generics
+- Type compilation and storage in arena memory
+- Runtime validation with optimized loops and type caching
+- Full test coverage (10 test files, all 5142 Zend tests pass)
 
 ## Reflection
 
@@ -1426,15 +1428,19 @@ function getUser(): array{id: int, name: string} {
 }
 ```
 
-### Tooling Support
+### Tooling Support (Future)
+
+Once adopted, ecosystem tools could provide automated migration:
 
 ```bash
-# Future: Automated migration tool (proposed)
+# Potential php-cs-fixer rule
 php-cs-fixer fix --rules=array_shape_from_docblock src/
 
-# Rector rule (proposed)
+# Potential Rector rule
 vendor/bin/rector process src/ --rules=DocblockToArrayShape
 ```
+
+These tools don't exist yet but would be straightforward to build once the syntax is standardized.
 
 ## Common Objections / FAQ
 
@@ -1558,8 +1564,9 @@ Required majority: 2/3
 
 ## Patches and Tests
 
-- Pull Request: https://github.com/php/php-src/pull/XXXXX
-- Test Suite: https://github.com/php/php-src/blob/master/Zend/tests/type/array_shapes/
+- **Implementation:** https://github.com/signalforger/php-src/tree/feature/array-shapes
+- **Patch file:** https://github.com/signalforger/php-array-shapes/blob/main/patches/array-shapes.patch
+- **Test Suite:** https://github.com/signalforger/php-src/tree/feature/array-shapes/Zend/tests/type_declarations/array_shapes
 
 ## Changelog
 

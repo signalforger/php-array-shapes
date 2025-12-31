@@ -22,6 +22,7 @@
     - [Optional Keys](#4-optional-keys-arraykey-type)
     - [Parameter Types](#5-parameter-types)
     - [Nested Structures](#6-nested-structures)
+    - [Shape Type Aliases](#7-shape-type-aliases)
   - [Semantics](#semantics)
     - [Runtime Validation Control](#runtime-validation-control-declarestrict_arrays1)
     - [Validation Rules](#validation-rules)
@@ -324,6 +325,113 @@ function getApiResponse(): array{
     ];
 }
 ```
+
+#### 7. Shape Type Aliases
+
+Define reusable type aliases for array structures using the `shape` keyword:
+
+```php
+declare(strict_arrays=1);
+
+// Define shape type aliases at file scope
+shape User = array{id: int, name: string, email: string};
+shape Point = array{x: int, y: int};
+shape Config = array{debug: bool, env: string, cache_ttl?: int};
+
+// Use shapes as return types
+function getUser(int $id): User {
+    return ['id' => $id, 'name' => 'Alice', 'email' => 'alice@example.com'];
+}
+
+// Use shapes as parameter types
+function processUser(User $user): void {
+    echo "Processing: {$user['name']}";
+}
+
+// Calculate distance between two points
+function distance(Point $a, Point $b): float {
+    return sqrt(($b['x'] - $a['x']) ** 2 + ($b['y'] - $a['y']) ** 2);
+}
+```
+
+**Nested Shapes:**
+
+Shapes can reference other shapes for complex hierarchical structures:
+
+```php
+shape Address = array{street: string, city: string, zip: string};
+shape Person = array{name: string, age: int, address: Address};
+
+function getPerson(): Person {
+    return [
+        'name' => 'Alice',
+        'age' => 30,
+        'address' => [
+            'street' => '123 Main St',
+            'city' => 'Springfield',
+            'zip' => '12345'
+        ]
+    ];
+}
+```
+
+**Shapes with Typed Arrays:**
+
+```php
+shape Team = array{
+    name: string,
+    members: array<string>,
+    scores: array<int>
+};
+
+shape ApiResponse = array{
+    success: bool,
+    data: mixed,
+    errors: array<array{code: int, message: string}>
+};
+```
+
+**Shape Autoloading:**
+
+Shapes can be autoloaded using standard `spl_autoload_register()`:
+
+```php
+spl_autoload_register(function($name) {
+    $file = __DIR__ . "/shapes/$name.php";
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+
+// UserShape will be autoloaded from shapes/UserShape.php when first used
+function getUser(): UserShape {
+    return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
+}
+```
+
+**shape_exists() Function:**
+
+Check if a shape type alias is defined:
+
+```php
+// Check without triggering autoload
+if (shape_exists('User', false)) {
+    echo "User shape is already defined";
+}
+
+// Check with autoloading (default)
+if (shape_exists('User')) {
+    echo "User shape exists (was autoloaded if needed)";
+}
+```
+
+**Benefits of Shape Aliases:**
+
+1. **Reusability**: Define once, use in multiple functions
+2. **Readability**: Clean function signatures without inline type definitions
+3. **Maintainability**: Change the shape definition in one place
+4. **Documentation**: Self-documenting data structures
+5. **IDE Support**: Enhanced autocomplete and refactoring
 
 ### Semantics
 
@@ -1115,6 +1223,17 @@ function getScores(): array<string, int> {
 
 **Status:** Implemented in this version. The `array<K, V>` syntax validates both key types (int, string, or int|string only) and value types.
 
+#### 8. Shape Type Aliases ✓ IMPLEMENTED
+```php
+shape User = array{id: int, name: string, email: string};
+
+function getUser(): User {
+    return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
+}
+```
+
+**Status:** Implemented in this version. The `shape` keyword allows defining reusable type aliases for array shapes. Shapes support autoloading via `spl_autoload_register()` and can be checked with `shape_exists()`.
+
 ## Comparison with Other Languages
 
 ### Hack (HHVM)
@@ -1128,9 +1247,10 @@ function getUser(): UserShape { }
 ```
 
 **Differences:**
-- Hack requires type aliases for shapes
+- Hack uses `type` keyword; PHP uses `shape` keyword for aliases
 - Hack has closed/open shape distinction
-- PHP allows inline shape definitions
+- PHP supports both inline definitions and type aliases
+- Both support autoloading of type aliases
 
 ### TypeScript
 ```typescript
@@ -1574,6 +1694,7 @@ Required majority: 2/3
 - **v1.1 (2025-12-27):** Added performance optimizations (type tagging cache, loop unrolling, escape analysis)
 - **v1.2 (2025-12-28):** Added parameter type validation, `array<K, V>` map types, optional keys support
 - **v1.3 (2025-12-30):** Code cleanup, fixed nested `array<array<T>>` parsing with lexer-level `>>` splitting
+- **v1.4 (2025-12-31):** Added `shape` keyword for reusable type aliases, shape autoloading via `spl_autoload_register()`, `shape_exists()` function
 
 ## References
 

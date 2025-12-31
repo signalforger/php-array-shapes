@@ -25,3 +25,4 @@ php/
 # OS files
 .DS_Store
 Thumbs.db
+CONTEXT.md

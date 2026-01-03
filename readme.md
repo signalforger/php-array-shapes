@@ -1,6 +1,6 @@
 # PHP RFC: Typed Arrays & Array Shapes
 
-* Version: 2.1
+* Version: 2.3
 * Date: 2026-01-03
 * Author: [Signalforger] <signalforger@signalforge.eu>
 * Status: Implemented (Proof of Concept)
@@ -768,6 +768,50 @@ class IntProvider extends NumberProvider {
 
 All 79 tests pass (76 pass + 3 expected failures for autoloading feature).
 
+## Performance Optimizations
+
+The implementation includes several optimizations for typed array validation:
+
+### Element Type Caching
+
+When validating `array<T>`, the element type is cached in the HashTable's `nValidatedElemType` field. Subsequent validations of the same array skip re-validation if the cached type matches.
+
+```php
+function getIds(): array<int> {
+    $arr = [1, 2, 3, 4, 5];
+    return $arr;  // First call: validates all elements
+    // If returned again, cache is hit
+}
+```
+
+### Key Type Caching
+
+For `array<K, V>` types, key types are cached in `nValidatedKeyType`. Packed arrays (sequential integer keys) have a fast path that skips iteration entirely.
+
+### Class Entry Caching
+
+When validating `array<ClassName>`, the class entry lookup is cached thread-locally. Repeated validations of arrays with the same class constraint avoid redundant lookups.
+
+### Object Array Optimizations
+
+Arrays of objects benefit from multiple fast paths:
+
+1. **Exact class match**: When an object's class pointer equals the expected class, inheritance checks are skipped
+2. **Monomorphic arrays**: When all objects are the same concrete type, only the first element requires an `instanceof` check
+3. **Packed array fast path**: Packed arrays (sequential indices) use direct pointer access
+
+### SIMD Validation (AVX2)
+
+On x86-64 systems with AVX2 support, large packed arrays of integers or floats (16+ elements) use SIMD instructions to validate 8 elements simultaneously.
+
+### Recursion Depth Limit
+
+Nested array validation is limited to 128 levels (`ZEND_TYPED_ARRAY_MAX_DEPTH`) to prevent stack overflow on deeply nested or circular structures.
+
+### Cache Invalidation
+
+All caches are automatically invalidated when arrays are mutated (adding/removing elements, clearing). This is handled transparently in the Zend engine's hash table operations.
+
 ## Why Native Types Instead of Static Analysis?
 
 Tools like PHPStan and Psalm already support array shapes via docblocks. Why add native syntax?
@@ -883,6 +927,7 @@ Potential future enhancements (not part of this RFC):
 - **v2.0 (2026-01-03):** Always-on validation, code quality improvements, updated documentation
 - **v2.1 (2026-01-03):** Added property type support for typed arrays and array shapes
 - **v2.2 (2026-01-03):** Added closed shapes `array{...}!` for strict key validation
+- **v2.3 (2026-01-03):** Added performance optimizations: element/key type caching, SIMD validation, class entry caching, object array optimizations
 
 ## References
 

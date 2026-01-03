@@ -26,8 +26,32 @@
  * AST Node Types for Array Shapes
  * ============================================================================
  * These AST node types are used during parsing to represent the new
- * array type syntaxes. They should be added to the ZEND_AST_* enum
- * in zend_ast.h.
+ * array type syntaxes.
+ *
+ * INTEGRATION NOTE:
+ * -----------------
+ * For production, these constants should be integrated into the PHP source:
+ *
+ * 1. Add to Zend/zend_ast.h in the ZEND_AST_* enum:
+ *
+ *    // After ZEND_AST_TYPE (around line 200):
+ *    ZEND_AST_TYPE_ARRAY_OF,       // array<T>
+ *    ZEND_AST_TYPE_ARRAY_SHAPE,    // array{key: T, ...}
+ *    ZEND_AST_SHAPE_ELEMENT,       // Single key: type pair
+ *    ZEND_AST_SHAPE_ELEMENT_LIST,  // List of shape elements
+ *
+ * 2. Update Zend/zend_language_parser.y to parse the new syntax:
+ *
+ *    type_expr:
+ *        T_ARRAY '<' type_expr '>'
+ *            { $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_OF, $3); }
+ *      | T_ARRAY '{' shape_element_list '}'
+ *            { $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_SHAPE, $3); }
+ *      | ... existing rules ...
+ *    ;
+ *
+ * The values below (200-203) are placeholders chosen to avoid collision
+ * with existing AST types. In production, the enum provides proper values.
  */
 
 /* AST node type for array<T> syntax */

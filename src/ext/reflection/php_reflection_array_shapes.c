@@ -174,6 +174,52 @@ static void reflection_array_shape_element_free(zend_object *obj)
  * ============================================================================
  */
 
+/* Forward declaration - from php_reflection.c */
+extern zend_class_entry *reflection_named_type_ptr;
+
+/*
+ * Create a ReflectionNamedType for a simple/built-in type.
+ * This is used when the element type of array<T> or shape element is
+ * a primitive type like int, string, bool, etc.
+ */
+static zend_object* reflection_named_type_from_zend_type(zend_type type)
+{
+	zend_string *type_str;
+
+	/* Get the type name as a string */
+	type_str = zend_type_to_string_extended(type);
+
+	/* Create a ReflectionNamedType via internal constructor
+	 * We use object_init_ex and then set the internal properties */
+	if (reflection_named_type_ptr) {
+		zend_object *obj;
+		zval name_zv;
+
+		obj = zend_objects_new(reflection_named_type_ptr);
+		object_properties_init(obj, reflection_named_type_ptr);
+
+		/* Store the type name in the object's properties
+		 * ReflectionNamedType has a 'name' property */
+		ZVAL_STR(&name_zv, type_str);
+		zend_update_property(reflection_named_type_ptr, obj, "name", sizeof("name")-1, &name_zv);
+
+		/* Store whether it allows null */
+		zend_update_property_bool(reflection_named_type_ptr, obj,
+			"allowsNull", sizeof("allowsNull")-1,
+			(type.type_mask & MAY_BE_NULL) != 0);
+
+		/* Store whether it's built-in */
+		zend_update_property_bool(reflection_named_type_ptr, obj,
+			"isBuiltin", sizeof("isBuiltin")-1,
+			!ZEND_TYPE_HAS_NAME(type));
+
+		return obj;
+	}
+
+	zend_string_release(type_str);
+	return NULL;
+}
+
 /* Create appropriate ReflectionType subclass for a zend_type */
 ZEND_API zend_object* reflection_type_from_zend_type(zend_type type)
 {
@@ -202,8 +248,8 @@ ZEND_API zend_object* reflection_type_from_zend_type(zend_type type)
 		return zobj;
 	}
 
-	/* Return NULL for standard types - they use existing ReflectionType classes */
-	return NULL;
+	/* For standard types, create a ReflectionNamedType */
+	return reflection_named_type_from_zend_type(type);
 }
 
 /* ============================================================================
@@ -265,18 +311,15 @@ PHP_METHOD(ReflectionArrayOfType, getElementType)
 		RETURN_NULL();
 	}
 
-	/* Create ReflectionType for element type */
+	/* Create ReflectionType for element type
+	 * reflection_type_from_zend_type handles both extended types
+	 * (array<T>, array{...}) and simple types (int, string, etc.) */
 	element_type_obj = reflection_type_from_zend_type(intern->array_of->element_type);
 
 	if (element_type_obj) {
 		RETURN_OBJ(element_type_obj);
 	}
 
-	/*
-	 * For simple types, we need to create a standard ReflectionNamedType.
-	 * This requires calling into the existing reflection infrastructure.
-	 */
-	/* TODO: Create ReflectionNamedType for simple element types */
 	RETURN_NULL();
 }
 
@@ -582,14 +625,15 @@ PHP_METHOD(ReflectionArrayShapeElement, getType)
 		RETURN_NULL();
 	}
 
-	/* Create ReflectionType for element type */
+	/* Create ReflectionType for element type
+	 * reflection_type_from_zend_type handles both extended types
+	 * (array<T>, array{...}) and simple types (int, string, etc.) */
 	type_obj = reflection_type_from_zend_type(intern->element->type);
 
 	if (type_obj) {
 		RETURN_OBJ(type_obj);
 	}
 
-	/* For simple types, return NULL (TODO: create ReflectionNamedType) */
 	RETURN_NULL();
 }
 

@@ -161,8 +161,10 @@ ZEND_API zend_type zend_compile_array_shape_type(zend_ast *ast)
 		/* Extract the key */
 		key_zval = zend_ast_get_zval(key_ast);
 		if (Z_TYPE_P(key_zval) == IS_STRING) {
-			/* String key - intern for efficient comparison */
-			elem->key = zend_new_interned_string(zend_string_copy(Z_STR_P(key_zval)));
+			/* String key - intern for efficient comparison
+			 * Note: zend_new_interned_string handles refcount internally,
+			 * no need to copy first */
+			elem->key = zend_new_interned_string(Z_STR_P(key_zval));
 			elem->is_string_key = 1;
 			elem->key_num = 0;
 		} else if (Z_TYPE_P(key_zval) == IS_LONG) {

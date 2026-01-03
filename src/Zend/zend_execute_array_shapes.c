@@ -552,10 +552,16 @@ ZEND_API bool zend_verify_return_type_extended(
 				&missing_key, &missing_key_num, &is_string_key,
 				&bad_value, &failed_element)) {
 
-			/* Determine the type of error */
-			if (missing_key || !is_string_key) {
+			/*
+			 * Determine the type of error:
+			 * 1. Missing key error: failed_element is set but bad_value is NULL
+			 * 2. Type mismatch error: both failed_element and bad_value are set
+			 */
+			bool is_missing_key_error = (failed_element != NULL && bad_value == NULL);
+
+			if (is_missing_key_error) {
 				/* Missing required key */
-				if (is_string_key && missing_key) {
+				if (is_string_key) {
 					zend_type_error(
 						"%s%s%s(): Return value missing required key '%s'",
 						func->common.scope ? ZSTR_VAL(func->common.scope->name) : "",
@@ -750,8 +756,15 @@ ZEND_API bool zend_verify_arg_type_extended(
 				&missing_key, &missing_key_num, &is_string_key,
 				&bad_value, &failed_element)) {
 
-			if (missing_key || !is_string_key) {
-				if (is_string_key && missing_key) {
+			/*
+			 * Determine the type of error:
+			 * 1. Missing key error: failed_element is set but bad_value is NULL
+			 * 2. Type mismatch error: both failed_element and bad_value are set
+			 */
+			bool is_missing_key_error = (failed_element != NULL && bad_value == NULL);
+
+			if (is_missing_key_error) {
+				if (is_string_key) {
 					zend_type_error(
 						"%s%s%s(): Argument #%d ($%s) missing required key '%s'",
 						func->common.scope ? ZSTR_VAL(func->common.scope->name) : "",

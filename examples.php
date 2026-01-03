@@ -1,279 +1,232 @@
 <?php
-declare(strict_arrays=1);
-
 /**
- * PHP Array Shapes - Working Examples
+ * PHP Typed Arrays & Array Shapes - Examples
  *
- * Run with: php examples.php
+ * Focus: Typed collections with classes (array<ClassName>)
+ *
+ * Run with: ./php-src/sapi/cli/php examples.php
  */
 
-echo "=== PHP Array Shapes Examples ===\n\n";
+echo "=== PHP Typed Arrays & Array Shapes ===\n\n";
 
-// -----------------------------------------------------------------------------
-// 1. Simple array<T>
-// -----------------------------------------------------------------------------
-function getIds(): array<int> {
-    return [1, 2, 3, 4, 5];
+// =============================================================================
+// DTOs / Value Objects
+// =============================================================================
+
+class User {
+    public function __construct(
+        public readonly int $id,
+        public readonly string $name,
+        public readonly string $email
+    ) {}
 }
 
-echo "1. array<int>: ";
-var_export(getIds());
-echo "\n\n";
-
-// -----------------------------------------------------------------------------
-// 2. array<K, V> map types
-// -----------------------------------------------------------------------------
-function getScores(): array<string, int> {
-    return ['alice' => 100, 'bob' => 85, 'charlie' => 92];
+class Product {
+    public function __construct(
+        public readonly int $id,
+        public readonly string $name,
+        public readonly float $price
+    ) {}
 }
 
-echo "2. array<string, int>: ";
-var_export(getScores());
-echo "\n\n";
+class OrderItem {
+    public function __construct(
+        public readonly Product $product,
+        public readonly int $quantity
+    ) {}
 
-// -----------------------------------------------------------------------------
-// 3. Simple shape
-// -----------------------------------------------------------------------------
-function getUser(): array{id: int, name: string, email: string} {
-    return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
+    public function getSubtotal(): float {
+        return $this->product->price * $this->quantity;
+    }
 }
 
-echo "3. array{id: int, name: string, email: string}: ";
-var_export(getUser());
-echo "\n\n";
+// =============================================================================
+// 1. Typed Collection: array<User>
+// =============================================================================
 
-// -----------------------------------------------------------------------------
-// 4. Shape with optional keys
-// -----------------------------------------------------------------------------
-function getConfig(): array{host: string, port?: int, ssl?: bool} {
-    return ['host' => 'localhost'];  // port and ssl are optional
-}
-
-echo "4. array{host: string, port?: int, ssl?: bool}: ";
-var_export(getConfig());
-echo "\n\n";
-
-// -----------------------------------------------------------------------------
-// 5. Nested array<array<T>> - 2 levels
-// -----------------------------------------------------------------------------
-function getMatrix(): array<array<int>> {
+function getUsers(): array<User> {
     return [
-        [1, 2, 3],
-        [4, 5, 6],
-        [7, 8, 9]
+        new User(1, 'Alice', 'alice@example.com'),
+        new User(2, 'Bob', 'bob@example.com'),
+        new User(3, 'Charlie', 'charlie@example.com'),
     ];
 }
 
-echo "5. array<array<int>> (matrix): ";
-var_export(getMatrix());
-echo "\n\n";
+echo "1. array<User> - Collection of User objects:\n";
+foreach (getUsers() as $user) {
+    echo "   - {$user->name} ({$user->email})\n";
+}
+echo "\n";
 
-// -----------------------------------------------------------------------------
-// 6. Nested array<array<array<T>>> - 3 levels
-// -----------------------------------------------------------------------------
-function get3D(): array<array<array<int>>> {
+// =============================================================================
+// 2. Typed Collection: array<Product>
+// =============================================================================
+
+function getProducts(): array<Product> {
     return [
-        [[1, 2], [3, 4]],
-        [[5, 6], [7, 8]]
+        new Product(101, 'Laptop', 999.99),
+        new Product(102, 'Mouse', 29.99),
+        new Product(103, 'Keyboard', 79.99),
     ];
 }
 
-echo "6. array<array<array<int>>> (3D): ";
-var_export(get3D());
-echo "\n\n";
+echo "2. array<Product> - Collection of Product objects:\n";
+foreach (getProducts() as $product) {
+    echo "   - {$product->name}: \${$product->price}\n";
+}
+echo "\n";
 
-// -----------------------------------------------------------------------------
-// 7. Deep nesting - 5 levels
-// -----------------------------------------------------------------------------
-function get5Levels(): array<array<array<array<array<int>>>>> {
-    return [[[[[1, 2, 3]]]]];
+// =============================================================================
+// 3. Typed Collection as Parameter
+// =============================================================================
+
+function calculateTotal(array<OrderItem> $items): float {
+    $total = 0.0;
+    foreach ($items as $item) {
+        $total += $item->getSubtotal();
+    }
+    return $total;
 }
 
-echo "7. 5 levels deep: ";
-var_export(get5Levels());
-echo "\n\n";
+$orderItems = [
+    new OrderItem(new Product(1, 'Widget', 10.00), 3),
+    new OrderItem(new Product(2, 'Gadget', 25.00), 2),
+];
 
-// -----------------------------------------------------------------------------
-// 8. Deep nesting - 10 levels
-// -----------------------------------------------------------------------------
-function get10Levels(): array<array<array<array<array<array<array<array<array<array<int>>>>>>>>>> {
-    return [[[[[[[[[[42]]]]]]]]]];
+echo "3. array<OrderItem> as parameter:\n";
+echo "   Order total: \$" . calculateTotal($orderItems) . "\n\n";
+
+// =============================================================================
+// 4. Repository Pattern with Typed Collections
+// =============================================================================
+
+class UserRepository {
+    private array $users = [];
+
+    public function __construct() {
+        $this->users = [
+            1 => new User(1, 'Alice', 'alice@example.com'),
+            2 => new User(2, 'Bob', 'bob@example.com'),
+        ];
+    }
+
+    public function findAll(): array<User> {
+        return array_values($this->users);
+    }
+
+    public function findById(int $id): ?User {
+        return $this->users[$id] ?? null;
+    }
+
+    public function findByIds(array<int> $ids): array<User> {
+        $result = [];
+        foreach ($ids as $id) {
+            if (isset($this->users[$id])) {
+                $result[] = $this->users[$id];
+            }
+        }
+        return $result;
+    }
 }
 
-echo "8. 10 levels deep: ";
-var_export(get10Levels());
-echo "\n\n";
+$repo = new UserRepository();
 
-// -----------------------------------------------------------------------------
-// 9. Array of shapes
-// -----------------------------------------------------------------------------
-function getUsers(): array<array{id: int, name: string}> {
+echo "4. Repository pattern with array<User>:\n";
+echo "   findAll(): " . count($repo->findAll()) . " users\n";
+echo "   findByIds([1, 2]): " . count($repo->findByIds([1, 2])) . " users\n\n";
+
+// =============================================================================
+// 5. Service Layer with Typed Collections
+// =============================================================================
+
+class UserService {
+    public function __construct(
+        private UserRepository $repository
+    ) {}
+
+    public function getActiveUsers(): array<User> {
+        // In real code, this would filter by active status
+        return $this->repository->findAll();
+    }
+
+    public function transformUsers(array<User> $users): array<array{id: int, displayName: string}> {
+        $result = [];
+        foreach ($users as $user) {
+            $result[] = [
+                'id' => $user->id,
+                'displayName' => strtoupper($user->name),
+            ];
+        }
+        return $result;
+    }
+}
+
+$service = new UserService($repo);
+
+echo "5. Service layer transforming array<User> to array<shape>:\n";
+foreach ($service->transformUsers($repo->findAll()) as $data) {
+    echo "   - ID {$data['id']}: {$data['displayName']}\n";
+}
+echo "\n";
+
+// =============================================================================
+// 6. Map Type: array<string, User>
+// =============================================================================
+
+function getUsersByEmail(): array<string, User> {
     return [
-        ['id' => 1, 'name' => 'Alice'],
-        ['id' => 2, 'name' => 'Bob'],
-        ['id' => 3, 'name' => 'Charlie']
+        'alice@example.com' => new User(1, 'Alice', 'alice@example.com'),
+        'bob@example.com' => new User(2, 'Bob', 'bob@example.com'),
     ];
 }
 
-echo "9. array<array{id: int, name: string}>: ";
-var_export(getUsers());
-echo "\n\n";
+echo "6. array<string, User> - Map with email keys:\n";
+$userMap = getUsersByEmail();
+echo "   alice@example.com -> {$userMap['alice@example.com']->name}\n\n";
 
-// -----------------------------------------------------------------------------
-// 10. Shape containing typed arrays
-// -----------------------------------------------------------------------------
+// =============================================================================
+// 7. Combining Typed Arrays with Shapes
+// =============================================================================
+
 function getApiResponse(): array{
     success: bool,
-    data: array<array{id: int, title: string}>,
-    count: int
+    users: array<User>,
+    total: int
 } {
+    $users = getUsers();
     return [
         'success' => true,
-        'data' => [
-            ['id' => 1, 'title' => 'First Post'],
-            ['id' => 2, 'title' => 'Second Post']
-        ],
-        'count' => 2
+        'users' => $users,
+        'total' => count($users),
     ];
 }
 
-echo "10. Shape with nested array<shape>: ";
-var_export(getApiResponse());
-echo "\n\n";
+echo "7. Shape containing array<User>:\n";
+$response = getApiResponse();
+echo "   success: " . ($response['success'] ? 'true' : 'false') . "\n";
+echo "   total: {$response['total']} users\n\n";
 
-// -----------------------------------------------------------------------------
-// 11. Complex real-world example: User with nested settings
-// -----------------------------------------------------------------------------
-function getUserProfile(): array{
-    id: int,
-    profile: array{
-        name: string,
-        email: string,
-        avatar?: string
-    },
-    settings: array{
-        theme: string,
-        notifications: array{
-            email: bool,
-            push: bool,
-            sms?: bool
-        },
-        privacy: array{
-            showEmail: bool,
-            showOnline: bool
-        }
-    },
-    roles: array<string>
-} {
-    return [
-        'id' => 1,
-        'profile' => [
-            'name' => 'Alice Smith',
-            'email' => 'alice@example.com'
-        ],
-        'settings' => [
-            'theme' => 'dark',
-            'notifications' => [
-                'email' => true,
-                'push' => false
-            ],
-            'privacy' => [
-                'showEmail' => false,
-                'showOnline' => true
-            ]
-        ],
-        'roles' => ['admin', 'moderator']
-    ];
-}
+// =============================================================================
+// 8. Type Error Example (commented out - would throw TypeError)
+// =============================================================================
 
-echo "11. Complex nested user profile:\n";
-print_r(getUserProfile());
-echo "\n";
+echo "8. Type safety - these would throw TypeError:\n";
+echo "   - Returning string in array<int>\n";
+echo "   - Returning stdClass in array<User>\n";
+echo "   - Missing required shape key\n\n";
 
-// -----------------------------------------------------------------------------
-// 12. Parameter types - shapes as input
-// -----------------------------------------------------------------------------
-function processOrder(array{product: string, quantity: int, price: float} $order): float {
-    return $order['quantity'] * $order['price'];
-}
+// Uncomment to see the error:
+// function brokenGetUsers(): array<User> {
+//     return [new User(1, 'Alice', 'a@b.com'), new stdClass()]; // TypeError!
+// }
 
-$order = ['product' => 'Widget', 'quantity' => 5, 'price' => 9.99];
-echo "12. Parameter shape - order total: " . processOrder($order) . "\n\n";
-
-// -----------------------------------------------------------------------------
-// 13. Parameter types - typed arrays as input
-// -----------------------------------------------------------------------------
-function sumScores(array<int> $scores): int {
-    return array_sum($scores);
-}
-
-echo "13. Parameter array<int> - sum: " . sumScores([10, 20, 30, 40]) . "\n\n";
-
-// -----------------------------------------------------------------------------
-// 14. Both parameter and return shapes
-// -----------------------------------------------------------------------------
-function transformUser(
-    array{id: int, name: string} $input
-): array{id: int, name: string, processed: bool, timestamp: int} {
-    return [
-        ...$input,
-        'processed' => true,
-        'timestamp' => time()
-    ];
-}
-
-echo "14. Transform with input and output shapes:\n";
-print_r(transformUser(['id' => 1, 'name' => 'Alice']));
-echo "\n";
-
-// -----------------------------------------------------------------------------
-// 15. Union types in arrays
-// -----------------------------------------------------------------------------
-function getMixedIds(): array<int|string> {
-    return [1, 'abc', 2, 'def', 3];
-}
-
-echo "15. array<int|string>: ";
-var_export(getMixedIds());
-echo "\n\n";
-
-// -----------------------------------------------------------------------------
-// 16. Map with complex values
-// -----------------------------------------------------------------------------
-function getTeams(): array<string, array{members: array<string>, score: int}> {
-    return [
-        'red' => ['members' => ['Alice', 'Bob'], 'score' => 150],
-        'blue' => ['members' => ['Charlie', 'Diana'], 'score' => 175]
-    ];
-}
-
-echo "16. Map with shape values:\n";
-print_r(getTeams());
-echo "\n";
-
-// -----------------------------------------------------------------------------
-// 17. Nullable array types
-// -----------------------------------------------------------------------------
-function maybeGetData(): ?array<int> {
-    return rand(0, 1) ? [1, 2, 3] : null;
-}
-
-echo "17. ?array<int>: ";
-var_export(maybeGetData());
-echo "\n\n";
-
-// -----------------------------------------------------------------------------
-// 18. Array elements can be nullable
-// -----------------------------------------------------------------------------
-function sparseArray(): array<?int> {
-    return [1, null, 3, null, 5];
-}
-
-echo "18. array<?int>: ";
-var_export(sparseArray());
-echo "\n\n";
-
-// -----------------------------------------------------------------------------
+// =============================================================================
 // Summary
-// -----------------------------------------------------------------------------
-echo "=== All 18 examples completed successfully! ===\n";
+// =============================================================================
+
+echo "=== All examples completed! ===\n";
+echo "\nKey patterns demonstrated:\n";
+echo "  - array<ClassName>     : Typed collection of objects\n";
+echo "  - array<string, Class> : Map with typed values\n";
+echo "  - array<int>           : Primitive typed collection\n";
+echo "  - array{key: type}     : Structured data shapes\n";

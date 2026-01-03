@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  # PHP-FPM service
+  php-fpm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: php-array-shapes:8.5
+    container_name: php-array-shapes-fpm
+    command: ["php-fpm", "-F"]
+    volumes:
+      - ../examples:/var/www/html/examples:ro
+      - ./app:/var/www/html/app
+    ports:
+      - "9000:9000"
+    restart: unless-stopped
+
+  # Nginx to serve PHP
+  nginx:
+    image: nginx:alpine
+    container_name: php-array-shapes-nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../examples:/var/www/html/examples:ro
+      - ./app:/var/www/html/app
+    depends_on:
+      - php-fpm
+    restart: unless-stopped
+
+  # CLI for running PHP scripts
+  cli:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: php-array-shapes:8.5
+    container_name: php-array-shapes-cli
+    command: ["php", "-v"]
+    volumes:
+      - ../:/workspace
+    working_dir: /workspace
+    profiles:
+      - cli

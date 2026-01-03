@@ -10973,14 +10973,11 @@ index 00000000..c6c12f00
 2.43.0
 
 
-From 180c4f3f430d496dd11b5c5933b81c037a2fc380 Mon Sep 17 00:00:00 2001
+From 56290519ed146e0c6979c9e6326465eb1676eae5 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 11:23:18 +0100
 Subject: [PATCH 26/33] Add opcache serialization and comprehensive test suite
  for typed arrays
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 Opcache support:
 - Add typed array (array<T>) serialization in zend_persist.c
@@ -10997,10 +10994,6 @@ Test suite (21 tests):
 - Error cases: type mismatches, missing keys
 - Reflection API tests
 - Class method tests
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/tests/typed_arrays/basic_int_array.phpt  | 40 ++++++++++++++
  Zend/tests/typed_arrays/basic_shape.phpt      | 23 ++++++++
@@ -11831,7 +11824,7 @@ index 106a69f5..74ad1129 100644
 2.43.0
 
 
-From a4b9d3e7fb69ce57351ac25d5421d447c95f52cf Mon Sep 17 00:00:00 2001
+From d78c51dafba19a0614752360b321e2e36e4ed329 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 18:17:32 +0100
 Subject: [PATCH 27/33] Fix test failures and improve typed array/shape
@@ -13879,7 +13872,7 @@ index ebe9a1cb..14849046 100644
 2.43.0
 
 
-From fe6c85acbcd84451d7f9b67001902fc26f234e2e Mon Sep 17 00:00:00 2001
+From d47f5624792a8a268770979eb9c0168cc12782df Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 18:22:00 +0100
 Subject: [PATCH 28/33] Enable typed array checking by default (remove declare
@@ -14670,7 +14663,7 @@ index c723e4d6..5f0d925d 100644
 2.43.0
 
 
-From 4e00671d5336aa837973ad380c28543d549cdbcd Mon Sep 17 00:00:00 2001
+From 3895037e76244d59483c9ede91c566c84da80f24 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 18:24:28 +0100
 Subject: [PATCH 29/33] Rewrite README to clarify typed arrays vs shapes use
@@ -15028,7 +15021,7 @@ index 35056e0e..2c599d44 100644
 2.43.0
 
 
-From 148634b3204164f09386c8b2b8c73bc97a222cbe Mon Sep 17 00:00:00 2001
+From 544e48e73ad7fecf08268f1d7ea8a730352eba72 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 18:30:53 +0100
 Subject: [PATCH 30/33] Update RFC document to match new always-on behavior
@@ -15277,7 +15270,7 @@ index 15dfaa19..f7a43ab5 100644
 2.43.0
 
 
-From 0a0fa32a0cca6cffa687215ae2e80bdac00a8b70 Mon Sep 17 00:00:00 2001
+From 0122d164cd8f5107593b7644f1758f2c926a8f4b Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 18:50:25 +0100
 Subject: [PATCH 31/33] Improve code quality: add constants, NULL checks, fix
@@ -15787,13 +15780,10 @@ index fc0d00d0..05cea324 100644
 2.43.0
 
 
-From d662a720e9e0af9d9c41923c0d42e884981f4d51 Mon Sep 17 00:00:00 2001
+From 43b9ceb46aeb4aaf86d888bc14800c87d48a9629 Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 19:35:27 +0100
 Subject: [PATCH 32/33] Add array shape validation for uninitialized properties
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 Fix array shape type validation when assigning to uninitialized class
 properties. The zend_std_write_property handler was only checking for
@@ -15804,10 +15794,6 @@ Changes:
 - Add ZEND_TYPE_HAS_ARRAY_SHAPE check in zend_object_handlers.c
 - Add zend_verify_array_prop_shape declaration to zend_execute.h
 - Add tests for property type validation errors
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  .../shape_property_missing_key_error.phpt     | 28 +++++++++++++++++++
  .../shape_property_wrong_type_error.phpt      | 28 +++++++++++++++++++
@@ -15988,24 +15974,17 @@ index 5f0d925d..cce8d6b4 100644
 2.43.0
 
 
-From ebc0dee2afb46c81051115baf193a2ea43894f76 Mon Sep 17 00:00:00 2001
+From 219e4334cc7e55c043e1c837771ed734146199bf Mon Sep 17 00:00:00 2001
 From: signalforger <signalforger@workplace.hr>
 Date: Sat, 3 Jan 2026 20:20:01 +0100
 Subject: [PATCH 33/33] Improve code quality: use error format macros, document
  bit allocation
-MIME-Version: 1.0
-Content-Type: text/plain; charset=UTF-8
-Content-Transfer-Encoding: 8bit
 
 - Use ZEND_SHAPE_ERROR_FORMAT_MISSING_KEY and ZEND_SHAPE_ERROR_FORMAT_WRONG_TYPE
   macros instead of hardcoded error message strings
 - Move zend_string allocation outside if/else branches to reduce duplication
 - Add comprehensive documentation for type_mask bit allocation in zend_types.h
   explaining bits 0-31 usage for type flags
-
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>
 ---
  Zend/zend_execute.c | 36 ++++++++++++++----------------------
  Zend/zend_types.h   | 12 ++++++++++--

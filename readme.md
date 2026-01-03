@@ -10,8 +10,8 @@
 
 - [Introduction](#introduction)
 - [Two Complementary Features](#two-complementary-features)
-  - [Typed Arrays — For Collections](#typed-arrays--for-collections)
-  - [Array Shapes — For Structured Data](#array-shapes--for-structured-data)
+  - [Typed Arrays: For Collections](#typed-arrays-for-collections)
+  - [Array Shapes: For Structured Data](#array-shapes-for-structured-data)
 - [Array Shapes Complement DTOs](#array-shapes-complement-dtos)
   - [Where Array Shapes Shine](#where-array-shapes-shine)
   - [The Boundary Pattern](#the-boundary-pattern-arrays-in-dtos-inside)
@@ -45,7 +45,7 @@
 
 PHP's type system currently supports return type declarations for scalar types, classes, and the generic `array` type. However, the `array` type provides no structural information, forcing developers to rely on documentation and static analysis tools to understand array contents.
 
-This RFC proposes adding **Typed Arrays** and **Array Shapes** to PHP—two complementary features that bring type safety to PHP's most versatile data structure.
+This RFC proposes adding **Typed Arrays** and **Array Shapes** to PHP: two complementary features that bring type safety to PHP's most versatile data structure.
 
 ### The Problem
 
@@ -64,7 +64,7 @@ This leads to:
 
 ## Two Complementary Features
 
-### Typed Arrays — For Collections
+### Typed Arrays: For Collections
 
 When you have a **list of things of the same type**, use typed arrays:
 
@@ -85,9 +85,9 @@ function getScores(): array<string, int> {
 }
 ```
 
-This is what you reach for when working with collections—arrays where every element is the same kind of thing.
+This is what you reach for when working with collections, where every element is the same kind of thing.
 
-### Array Shapes — For Structured Data
+### Array Shapes: For Structured Data
 
 When you have **structured data with known keys**, like records from a database or responses from an API, use array shapes:
 
@@ -107,7 +107,7 @@ function getWeather(string $city): array{temp: float, humidity: int, conditions:
 
 A common reaction: "Why not just use classes/DTOs?"
 
-**Array shapes don't replace DTOs—they complement them.** The key insight is that arrays earn their keep at the boundaries of your application, where data enters from external sources:
+**Array shapes don't replace DTOs, they complement them.** The key insight is that arrays earn their keep at the boundaries of your application, where data enters from external sources:
 
 ### Where Array Shapes Shine
 
@@ -184,7 +184,7 @@ class UserService {
 ## Quick Reference
 
 ```php
-// Typed arrays — for collections
+// Typed arrays (for collections)
 array<int>                     // List of integers
 array<string>                  // List of strings
 array<User>                    // List of User objects
@@ -192,18 +192,18 @@ array<int|string>              // List of integers or strings
 array<string, int>             // Dictionary: string keys, int values
 array<array<int>>              // List of integer lists
 
-// Array shapes — for structured data
+// Array shapes (for structured data)
 array{id: int, name: string}   // Required keys
 array{id: int, email?: string} // Optional key (may be absent)
 array{data: ?string}           // Nullable value (can be null)
 array{user: array{id: int}}    // Nested shapes
 
-// Shape type aliases — for reusability
+// Shape type aliases (for reusability)
 shape User = array{id: int, name: string};
 shape Point = array{x: int, y: int};
 shape Config = array{debug: bool, cache?: int};
 
-// Property types — typed class properties
+// Property types (typed class properties)
 class Example {
     public array<int> $ids = [];
     public array<User> $users;
@@ -231,7 +231,7 @@ class UserRepository {
         return $this->db->fetch("SELECT * FROM users WHERE id = ?", $id);
     }
 
-    // Collection of records — combining both features!
+    // Collection of records (combining both features!)
     public function findAll(): array<UserRecord> {
         return $this->db->fetchAll("SELECT * FROM users");
     }
@@ -521,7 +521,7 @@ Looking at how generics are actually used in other languages, the overwhelming m
 1. **Typed collections**: `List<User>`, `Map<string, int>`, `Set<Product>`
 2. **Structured data**: `Result<T>`, `Response<Data>`, `Pair<A, B>`
 
-Typed arrays (`array<User>`) and array shapes (`array{success: bool, data: mixed}`) solve both of these directly—covering 90%+ of real-world generic use cases.
+Typed arrays (`array<User>`) and array shapes (`array{success: bool, data: mixed}`) solve both of these directly, covering 90%+ of real-world generic use cases.
 
 ### What's Left?
 
@@ -571,7 +571,7 @@ This is years of implementation work for diminishing returns. Typed arrays and a
 | Database row | `Row<T>` | `array{id: int, name: string}` |
 | Generic container | `Box<T>` | Class with `mixed` or specific typed class |
 
-**Typed arrays and array shapes aren't a compromise—they're a direct solution** to what developers actually need, without the complexity tax of full generics.
+**Typed arrays and array shapes aren't a compromise. They're a direct solution** to what developers actually need, without the complexity tax of full generics.
 
 ## Backward Compatibility
 

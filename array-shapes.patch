@@ -322,6 +322,141 @@ index fd4ae661..6e6047f6 100644
  
  class UserService {
      public function createUser(array{name: string, email: string} $data): array{id: int, name: string, email: string} {
+diff --git a/Zend/tests/type_declarations/array_shapes/closed_shape_basic.phpt b/Zend/tests/type_declarations/array_shapes/closed_shape_basic.phpt
+new file mode 100644
+index 00000000..e147be7e
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/closed_shape_basic.phpt
+@@ -0,0 +1,31 @@
++--TEST--
++Closed array shape - basic validation
++--SKIPIF--
++<?php if (getenv('USE_ZEND_ALLOC') === '0') die('skip Not compatible with valgrind'); ?>
++--FILE--
++<?php
++
++// Closed shape: no extra keys allowed
++function getUser(): array{id: int, name: string}! {
++    return ['id' => 1, 'name' => 'Alice'];
++}
++
++$user = getUser();
++var_dump($user);
++
++// Verify reflection
++$ref = new ReflectionFunction('getUser');
++$type = $ref->getReturnType();
++var_dump($type->isClosed());
++echo $type . "\n";
++
++?>
++--EXPECTF--
++array(2) {
++  ["id"]=>
++  int(1)
++  ["name"]=>
++  string(5) "Alice"
++}
++bool(true)
++array{id: int, name: string}!%A
+diff --git a/Zend/tests/type_declarations/array_shapes/closed_shape_extra_key_error.phpt b/Zend/tests/type_declarations/array_shapes/closed_shape_extra_key_error.phpt
+new file mode 100644
+index 00000000..2bc0a2ed
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/closed_shape_extra_key_error.phpt
+@@ -0,0 +1,20 @@
++--TEST--
++Closed array shape - extra key error
++--SKIPIF--
++<?php if (getenv('USE_ZEND_ALLOC') === '0') die('skip Not compatible with valgrind'); ?>
++--FILE--
++<?php
++
++function getUser(): array{id: int, name: string}! {
++    return ['id' => 1, 'name' => 'Alice', 'extra' => 'not allowed'];
++}
++
++try {
++    getUser();
++} catch (TypeError $e) {
++    echo $e->getMessage() . "\n";
++}
++
++?>
++--EXPECTF--
++getUser(): Return value must be of type closed shape, unexpected extra key "extra"%A
+diff --git a/Zend/tests/type_declarations/array_shapes/closed_shape_param.phpt b/Zend/tests/type_declarations/array_shapes/closed_shape_param.phpt
+new file mode 100644
+index 00000000..5163dc52
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/closed_shape_param.phpt
+@@ -0,0 +1,25 @@
++--TEST--
++Closed array shape - parameter type
++--SKIPIF--
++<?php if (getenv('USE_ZEND_ALLOC') === '0') die('skip Not compatible with valgrind'); ?>
++--FILE--
++<?php
++
++function processUser(array{id: int, name: string}! $user): void {
++    echo "Processing user: " . $user['name'] . "\n";
++}
++
++// Valid: exact match
++processUser(['id' => 1, 'name' => 'Alice']);
++
++// Invalid: extra key
++try {
++    processUser(['id' => 2, 'name' => 'Bob', 'extra' => 'data']);
++} catch (TypeError $e) {
++    echo $e->getMessage() . "\n";
++}
++
++?>
++--EXPECTF--
++Processing user: Alice
++processUser(): Argument #1 ($user) must be of type closed shape, unexpected extra key "extra"%A
+diff --git a/Zend/tests/type_declarations/array_shapes/open_shape_extra_keys.phpt b/Zend/tests/type_declarations/array_shapes/open_shape_extra_keys.phpt
+new file mode 100644
+index 00000000..c915464e
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/open_shape_extra_keys.phpt
+@@ -0,0 +1,35 @@
++--TEST--
++Open array shape - extra keys allowed (default)
++--SKIPIF--
++<?php if (getenv('USE_ZEND_ALLOC') === '0') die('skip Not compatible with valgrind'); ?>
++--FILE--
++<?php
++
++// Open shape (default): extra keys are allowed
++function getUser(): array{id: int, name: string} {
++    return ['id' => 1, 'name' => 'Alice', 'extra' => 'allowed', 'more' => 'data'];
++}
++
++$user = getUser();
++var_dump($user);
++
++// Verify reflection shows not closed
++$ref = new ReflectionFunction('getUser');
++$type = $ref->getReturnType();
++var_dump($type->isClosed());
++echo $type . "\n";
++
++?>
++--EXPECTF--
++array(4) {
++  ["id"]=>
++  int(1)
++  ["name"]=>
++  string(5) "Alice"
++  ["extra"]=>
++  string(7) "allowed"
++  ["more"]=>
++  string(4) "data"
++}
++bool(false)
++array{id: int, name: string}%A
 diff --git a/Zend/tests/type_declarations/array_shapes/param_basic.phpt b/Zend/tests/type_declarations/array_shapes/param_basic.phpt
 index 84c2e0b1..28bbadde 100644
 --- a/Zend/tests/type_declarations/array_shapes/param_basic.phpt
@@ -2964,7 +3099,7 @@ diff --git a/Zend/zend_builtin_functions_arginfo.h b/Zend/zend_builtin_functions
 index cf349b55..b7fcf746 100644
 Binary files a/Zend/zend_builtin_functions_arginfo.h and b/Zend/zend_builtin_functions_arginfo.h differ
 diff --git a/Zend/zend_compile.c b/Zend/zend_compile.c
-index ca9d1f24..6040daa2 100644
+index ca9d1f24..785aa161 100644
 --- a/Zend/zend_compile.c
 +++ b/Zend/zend_compile.c
 @@ -38,6 +38,7 @@
@@ -2995,7 +3130,7 @@ index ca9d1f24..6040daa2 100644
  	CG(file_context) = *prev_context;
  }
  /* }}} */
-@@ -1478,7 +1485,51 @@ zend_string *zend_type_to_string_resolved(const zend_type type, zend_class_entry
+@@ -1478,7 +1485,54 @@ zend_string *zend_type_to_string_resolved(const zend_type type, zend_class_entry
  		str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_OBJECT), /* is_intersection */ false);
  	}
  	if (type_mask & MAY_BE_ARRAY) {
@@ -3041,6 +3176,9 @@ index ca9d1f24..6040daa2 100644
 +				zend_string_release(elem_type_str);
 +			}
 +			smart_str_appendc(&buf, '}');
++			if (shape->is_closed) {
++				smart_str_appendc(&buf, '!');
++			}
 +			str = add_type_string(str, smart_str_extract(&buf), /* is_intersection */ false);
 +		} else {
 +			str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_ARRAY), /* is_intersection */ false);
@@ -3048,7 +3186,7 @@ index ca9d1f24..6040daa2 100644
  	}
  	if (type_mask & MAY_BE_STRING) {
  		str = add_type_string(str, ZSTR_KNOWN(ZEND_STR_STRING), /* is_intersection */ false);
-@@ -2755,8 +2806,12 @@ static void zend_emit_return_type_check(
+@@ -2755,8 +2809,12 @@ static void zend_emit_return_type_check(
  			if (Z_TYPE(expr->u.constant) == IS_ARRAY && ZEND_TYPE_HAS_ARRAY_ELEMENT(type)) {
  				const zend_typed_array_element *elem_type = ZEND_TYPED_ARRAY_ELEMENT(type);
  				if (elem_type) {
@@ -3063,20 +3201,31 @@ index ca9d1f24..6040daa2 100644
  						return; /* All elements match - no runtime check needed */
  					}
  				}
-@@ -7241,6 +7296,12 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+@@ -7236,14 +7294,22 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+ 		type.ptr = elem_type;
+ 		return type;
+ 	} else if (ast->kind == ZEND_AST_TYPE_ARRAY_SHAPE) {
+-		/* array{key: type, ...} */
++		/* array{key: type, ...} or array{key: type, ...}! (closed) */
+ 		zend_ast *element_list = ast->child[0];
  		uint32_t num_elements = element_list ? zend_ast_get_list(element_list)->children : 0;
  		uint32_t num_required = 0;
- 
++		bool is_closed = (ast->attr != 0);
++
 +		/* Validate element count to prevent excessive memory allocation */
 +		if (UNEXPECTED(num_elements > ZEND_SHAPE_MAX_ELEMENTS)) {
 +			zend_error_noreturn(E_COMPILE_ERROR,
 +				"Array shape cannot have more than %d elements", ZEND_SHAPE_MAX_ELEMENTS);
 +		}
-+
+ 
  		size_t shape_size = sizeof(zend_array_shape) + num_elements * sizeof(zend_array_shape_element);
  		zend_array_shape *shape = zend_arena_alloc(&CG(arena), shape_size);
  		shape->num_elements = num_elements;
-@@ -7251,7 +7312,7 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
++		shape->is_closed = is_closed;
+ 
+ 		if (element_list) {
+ 			zend_ast_list *list = zend_ast_get_list(element_list);
+@@ -7251,7 +7317,7 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
  				zend_ast *elem_ast = list->child[i];
  				zend_ast *key_ast = elem_ast->child[0];
  				zend_ast *type_ast = elem_ast->child[1];
@@ -3085,7 +3234,7 @@ index ca9d1f24..6040daa2 100644
  
  				shape->elements[i].key = zend_string_copy(zend_ast_get_str(key_ast));
  				shape->elements[i].type = zend_compile_typename(type_ast);
-@@ -7288,7 +7349,35 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
+@@ -7288,7 +7354,35 @@ static zend_type zend_compile_single_typename(zend_ast *ast)
  			}
  
  			return (zend_type) ZEND_TYPE_INIT_CODE(type_code, 0, 0);
@@ -3122,7 +3271,7 @@ index ca9d1f24..6040daa2 100644
  			const char *correct_name;
  			uint32_t fetch_type = zend_get_class_fetch_type_ast(ast);
  			zend_string *class_name = type_name;
-@@ -9918,6 +10007,132 @@ static void zend_compile_const_decl(zend_ast *ast) /* {{{ */
+@@ -9918,6 +10012,132 @@ static void zend_compile_const_decl(zend_ast *ast) /* {{{ */
  }
  /* }}}*/
  
@@ -3255,7 +3404,7 @@ index ca9d1f24..6040daa2 100644
  static void zend_compile_namespace(zend_ast *ast) /* {{{ */
  {
  	zend_ast *name_ast = ast->child[0];
-@@ -11956,6 +12171,9 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
+@@ -11956,6 +12176,9 @@ static void zend_compile_stmt(zend_ast *ast) /* {{{ */
  		case ZEND_AST_CONST_DECL:
  			zend_compile_const_decl(ast);
  			break;
@@ -3266,10 +3415,18 @@ index ca9d1f24..6040daa2 100644
  			zend_compile_namespace(ast);
  			break;
 diff --git a/Zend/zend_compile.h b/Zend/zend_compile.h
-index 3bb612c8..aefb14e5 100644
+index 3bb612c8..e8eea616 100644
 --- a/Zend/zend_compile.h
 +++ b/Zend/zend_compile.h
-@@ -148,6 +148,50 @@ typedef struct _zend_array_shape {
+@@ -136,6 +136,7 @@ typedef struct _zend_array_shape_element {
+ typedef struct _zend_array_shape {
+ 	uint32_t num_elements;               /* Number of shape elements */
+ 	uint32_t num_required;               /* Number of required (non-optional) elements */
++	bool is_closed;                      /* If true, no extra keys allowed (array{...}!) */
+ 	zend_array_shape_element elements[]; /* Flexible array member */
+ } zend_array_shape;
+ 
+@@ -148,6 +149,53 @@ typedef struct _zend_array_shape {
  	((zend_array_shape *) (t).ptr)
  
  /* Compilation context that is different for each file, but shared between op arrays. */
@@ -3307,7 +3464,8 @@ index 3bb612c8..aefb14e5 100644
 +typedef enum {
 +	SHAPE_OK = 0,           /* Validation passed */
 +	SHAPE_MISSING_KEY = 1,  /* Required key is missing from array */
-+	SHAPE_WRONG_TYPE = 2    /* Key exists but value has wrong type */
++	SHAPE_WRONG_TYPE = 2,   /* Key exists but value has wrong type */
++	SHAPE_EXTRA_KEY = 3     /* Extra key found in closed shape */
 +} zend_shape_check_result;
 +
 +/* Error message format for shape type errors.
@@ -3316,11 +3474,13 @@ index 3bb612c8..aefb14e5 100644
 +	"array{%s: %s, ...}, array given with missing key \"%s\""
 +#define ZEND_SHAPE_ERROR_FORMAT_WRONG_TYPE \
 +	"array{%s: %s, ...}, array key \"%s\" is %s"
++#define ZEND_SHAPE_ERROR_FORMAT_EXTRA_KEY \
++	"closed shape, unexpected extra key \"%s\""
 +
  typedef struct _zend_file_context {
  	zend_declarables declarables;
  
-@@ -158,6 +202,7 @@ typedef struct _zend_file_context {
+@@ -158,6 +206,7 @@ typedef struct _zend_file_context {
  	HashTable *imports;
  	HashTable *imports_function;
  	HashTable *imports_const;
@@ -3328,7 +3488,7 @@ index 3bb612c8..aefb14e5 100644
  
  	HashTable seen_symbols;
  } zend_file_context;
-@@ -762,14 +807,12 @@ ZEND_STATIC_ASSERT(ZEND_MM_ALIGNED_SIZE(sizeof(zval)) == sizeof(zval),
+@@ -762,14 +811,12 @@ ZEND_STATIC_ASSERT(ZEND_MM_ALIGNED_SIZE(sizeof(zval)) == sizeof(zval),
  #define EX_USES_STRICT_TYPES() \
  	ZEND_CALL_USES_STRICT_TYPES(execute_data)
  
@@ -3348,7 +3508,7 @@ index 3bb612c8..aefb14e5 100644
  #define ZEND_ARG_USES_STRICT_TYPES() \
  	(EG(current_execute_data)->prev_execute_data && \
 diff --git a/Zend/zend_execute.c b/Zend/zend_execute.c
-index bd39b79a..4c076b68 100644
+index bd39b79a..d7ce7525 100644
 --- a/Zend/zend_execute.c
 +++ b/Zend/zend_execute.c
 @@ -1068,6 +1068,9 @@ ZEND_API bool zend_never_inline zend_verify_property_type(const zend_property_in
@@ -3414,7 +3574,7 @@ index bd39b79a..4c076b68 100644
  	if (ZEND_TYPE_IS_COMPLEX(*type) && EXPECTED(Z_TYPE_P(arg) == IS_OBJECT)) {
  		zend_class_entry *ce;
  		if (UNEXPECTED(ZEND_TYPE_HAS_LIST(*type))) {
-@@ -2128,11 +2151,7 @@ ZEND_API bool zend_verify_array_prop_element_types(
+@@ -2128,21 +2151,18 @@ ZEND_API bool zend_verify_array_prop_element_types(
  	return false;
  }
  
@@ -3427,7 +3587,11 @@ index bd39b79a..4c076b68 100644
  
  static zend_always_inline zend_shape_check_result zend_check_array_shape(
  	HashTable *ht, const zend_array_shape *shape,
-@@ -2142,7 +2161,7 @@ static zend_always_inline zend_shape_check_result zend_check_array_shape(
+-	const zend_array_shape_element **failed_elem, zval **failed_val)
++	const zend_array_shape_element **failed_elem, zval **failed_val,
++	zend_string **extra_key)
+ {
+ 	for (uint32_t i = 0; i < shape->num_elements; i++) {
  		const zend_array_shape_element *elem = &shape->elements[i];
  		zval *val = zend_hash_find(ht, elem->key);
  
@@ -3436,7 +3600,7 @@ index bd39b79a..4c076b68 100644
  			if (!elem->is_optional) {
  				*failed_elem = elem;
  				*failed_val = NULL;
-@@ -2151,7 +2170,7 @@ static zend_always_inline zend_shape_check_result zend_check_array_shape(
+@@ -2151,51 +2171,91 @@ static zend_always_inline zend_shape_check_result zend_check_array_shape(
  			continue;
  		}
  
@@ -3445,12 +3609,52 @@ index bd39b79a..4c076b68 100644
  			*failed_elem = elem;
  			*failed_val = val;
  			return SHAPE_WRONG_TYPE;
-@@ -2168,34 +2187,37 @@ static ZEND_COLD void zend_shape_return_error(
+ 		}
+ 	}
+ 
++	/* For closed shapes, check that no extra keys exist */
++	if (UNEXPECTED(shape->is_closed)) {
++		if (zend_hash_num_elements(ht) != shape->num_elements) {
++			/* Find the first extra key for error message */
++			zend_string *key;
++			ZEND_HASH_FOREACH_STR_KEY(ht, key) {
++				if (key) {
++					bool found = false;
++					for (uint32_t i = 0; i < shape->num_elements; i++) {
++						if (zend_string_equals(key, shape->elements[i].key)) {
++							found = true;
++							break;
++						}
++					}
++					if (!found) {
++						*extra_key = key;
++						return SHAPE_EXTRA_KEY;
++					}
++				}
++			} ZEND_HASH_FOREACH_END();
++		}
++	}
++
+ 	return SHAPE_OK;
+ }
+ 
+ static ZEND_COLD void zend_shape_return_error(
+ 	const zend_function *zf, zend_shape_check_result result,
+-	const zend_array_shape_element *elem, zval *val)
++	const zend_array_shape_element *elem, zval *val, zend_string *extra_key)
+ {
  	const char *fname = ZSTR_VAL(zf->common.function_name);
  	const char *fsep = zf->common.scope ? "::" : "";
  	const char *fclass = zf->common.scope ? ZSTR_VAL(zf->common.scope->name) : "";
-+	zend_string *expected = zend_type_to_string(elem->type);
  
++	if (result == SHAPE_EXTRA_KEY) {
++		zend_type_error("%s%s%s(): Return value must be of type " ZEND_SHAPE_ERROR_FORMAT_EXTRA_KEY,
++			fclass, fsep, fname, ZSTR_VAL(extra_key));
++		return;
++	}
++
++	zend_string *expected = zend_type_to_string(elem->type);
++
  	if (result == SHAPE_MISSING_KEY) {
 -		zend_type_error("%s%s%s(): Return value must be of type array{%s: ...}, "
 -			"missing required key \"%s\"",
@@ -3473,8 +3677,16 @@ index bd39b79a..4c076b68 100644
  
  static ZEND_COLD void zend_shape_arg_error(
  	uint32_t arg_num, zend_shape_check_result result,
- 	const zend_array_shape_element *elem, zval *val)
+-	const zend_array_shape_element *elem, zval *val)
++	const zend_array_shape_element *elem, zval *val, zend_string *extra_key)
  {
++	if (result == SHAPE_EXTRA_KEY) {
++		zend_argument_type_error(arg_num,
++			"must be of type " ZEND_SHAPE_ERROR_FORMAT_EXTRA_KEY,
++			ZSTR_VAL(extra_key));
++		return;
++	}
++
 +	zend_string *expected = zend_type_to_string(elem->type);
 +
  	if (result == SHAPE_MISSING_KEY) {
@@ -3498,14 +3710,49 @@ index bd39b79a..4c076b68 100644
  }
  
  ZEND_API bool zend_verify_array_shape(
-@@ -2230,6 +2252,116 @@ ZEND_API bool zend_verify_array_arg_shape(
- 	return true;
- }
+@@ -2203,12 +2263,13 @@ ZEND_API bool zend_verify_array_shape(
+ {
+ 	const zend_array_shape_element *failed_elem;
+ 	zval *failed_val;
++	zend_string *extra_key = NULL;
  
+ 	zend_shape_check_result result = zend_check_array_shape(
+-		Z_ARRVAL_P(arr), shape, &failed_elem, &failed_val);
++		Z_ARRVAL_P(arr), shape, &failed_elem, &failed_val, &extra_key);
+ 
+ 	if (UNEXPECTED(result != SHAPE_OK)) {
+-		zend_shape_return_error(zf, result, failed_elem, failed_val);
++		zend_shape_return_error(zf, result, failed_elem, failed_val, extra_key);
+ 		return false;
+ 	}
+ 	return true;
+@@ -2219,17 +2280,137 @@ ZEND_API bool zend_verify_array_arg_shape(
+ {
+ 	const zend_array_shape_element *failed_elem;
+ 	zval *failed_val;
++	zend_string *extra_key = NULL;
++
++	zend_shape_check_result result = zend_check_array_shape(
++		Z_ARRVAL_P(arr), shape, &failed_elem, &failed_val, &extra_key);
++
++	if (UNEXPECTED(result != SHAPE_OK)) {
++		zend_shape_arg_error(arg_num, result, failed_elem, failed_val, extra_key);
++		return false;
++	}
++	return true;
++}
++
 +static ZEND_COLD void zend_shape_prop_error(
 +	const zend_property_info *info, zend_shape_check_result result,
-+	const zend_array_shape_element *elem, zval *val)
++	const zend_array_shape_element *elem, zval *val, zend_string *extra_key)
 +{
++	if (result == SHAPE_EXTRA_KEY) {
++		zend_type_error("Cannot assign to property %s::$%s of type " ZEND_SHAPE_ERROR_FORMAT_EXTRA_KEY,
++			ZSTR_VAL(info->ce->name), ZSTR_VAL(info->name),
++			ZSTR_VAL(extra_key));
++		return;
++	}
++
 +	zend_string *expected = zend_type_to_string(elem->type);
 +
 +	if (result == SHAPE_MISSING_KEY) {
@@ -3526,17 +3773,20 @@ index bd39b79a..4c076b68 100644
 +{
 +	const zend_array_shape_element *failed_elem;
 +	zval *failed_val;
-+
-+	zend_shape_check_result result = zend_check_array_shape(
-+		Z_ARRVAL_P(arr), shape, &failed_elem, &failed_val);
-+
-+	if (UNEXPECTED(result != SHAPE_OK)) {
-+		zend_shape_prop_error(info, result, failed_elem, failed_val);
-+		return false;
-+	}
-+	return true;
-+}
-+
++	zend_string *extra_key = NULL;
+ 
+ 	zend_shape_check_result result = zend_check_array_shape(
+-		Z_ARRVAL_P(arr), shape, &failed_elem, &failed_val);
++		Z_ARRVAL_P(arr), shape, &failed_elem, &failed_val, &extra_key);
+ 
+ 	if (UNEXPECTED(result != SHAPE_OK)) {
+-		zend_shape_arg_error(arg_num, result, failed_elem, failed_val);
++		zend_shape_prop_error(info, result, failed_elem, failed_val, extra_key);
+ 		return false;
+ 	}
+ 	return true;
+ }
+ 
 +/* ZEND_SHAPE_MAX_RECURSION_DEPTH is defined in zend_compile.h */
 +
 +/* Thread-local recursion depth counter for shape validation */
@@ -3580,9 +3830,10 @@ index bd39b79a..4c076b68 100644
 +		zend_array_shape *shape_def = ZEND_ARRAY_SHAPE(shape_type);
 +		const zend_array_shape_element *failed_elem;
 +		zval *failed_val;
++		zend_string *extra_key = NULL;
 +		/* Validate the array against the shape definition */
 +		zend_shape_check_result check_result = zend_check_array_shape(
-+			Z_ARRVAL_P(arg), shape_def, &failed_elem, &failed_val);
++			Z_ARRVAL_P(arg), shape_def, &failed_elem, &failed_val, &extra_key);
 +		result = (check_result == SHAPE_OK);
 +		goto done;
 +	}
@@ -3719,7 +3970,7 @@ index 7d9ef85b..6129bc76 100644
  	zval          *vm_stack_top;
  	zval          *vm_stack_end;
 diff --git a/Zend/zend_language_parser.y b/Zend/zend_language_parser.y
-index 219c9329..075975a2 100644
+index 219c9329..5ad0372e 100644
 --- a/Zend/zend_language_parser.y
 +++ b/Zend/zend_language_parser.y
 @@ -169,6 +169,7 @@ static YYSIZE_T zend_yytnamerr(char*, const char*);
@@ -3767,6 +4018,22 @@ index 219c9329..075975a2 100644
  extends_from:
  		%empty				{ $$ = NULL; }
  	|	T_EXTENDS class_name	{ $$ = $2; }
+@@ -882,9 +890,13 @@ type_without_static:
+ 	|	T_ARRAY '<' type_expr ',' type_expr '>'
+ 			{ $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_MAP, $3, $5); }
+ 	|	T_ARRAY_SHAPE_START shape_element_list '}'
+-			{ $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_SHAPE, $2); }
++			{ $$ = zend_ast_create_ex(ZEND_AST_TYPE_ARRAY_SHAPE, 0, $2); }
+ 	|	T_ARRAY_SHAPE_START '}'
+-			{ $$ = zend_ast_create(ZEND_AST_TYPE_ARRAY_SHAPE, NULL); }
++			{ $$ = zend_ast_create_ex(ZEND_AST_TYPE_ARRAY_SHAPE, 0, NULL); }
++	|	T_ARRAY_SHAPE_START shape_element_list '}' '!'
++			{ $$ = zend_ast_create_ex(ZEND_AST_TYPE_ARRAY_SHAPE, 1, $2); }
++	|	T_ARRAY_SHAPE_START '}' '!'
++			{ $$ = zend_ast_create_ex(ZEND_AST_TYPE_ARRAY_SHAPE, 1, NULL); }
+ ;
+ 
+ shape_element_list:
 diff --git a/Zend/zend_language_scanner.l b/Zend/zend_language_scanner.l
 index 63ec131e..028f0633 100644
 --- a/Zend/zend_language_scanner.l
@@ -5026,3 +5293,48 @@ index 106a69f5..74ad1129 100644
  	zend_type *single_type;
  	ZEND_TYPE_FOREACH_MUTABLE(*type, single_type) {
  		if (ZEND_TYPE_HAS_LIST(*single_type)) {
+diff --git a/ext/reflection/php_reflection.c b/ext/reflection/php_reflection.c
+index db205a43..585e7972 100644
+--- a/ext/reflection/php_reflection.c
++++ b/ext/reflection/php_reflection.c
+@@ -3423,6 +3423,23 @@ ZEND_METHOD(ReflectionArrayShapeType, getRequiredElementCount)
+ }
+ /* }}} */
+ 
++/* {{{ Returns whether this is a closed shape (no extra keys allowed) */
++ZEND_METHOD(ReflectionArrayShapeType, isClosed)
++{
++	reflection_object *intern;
++	type_reference *param;
++	zend_array_shape *shape;
++
++	ZEND_PARSE_PARAMETERS_NONE();
++	GET_REFLECTION_OBJECT_PTR(param);
++
++	ZEND_ASSERT(ZEND_TYPE_HAS_ARRAY_SHAPE(param->type));
++	shape = ZEND_ARRAY_SHAPE(param->type);
++
++	RETURN_BOOL(shape->is_closed);
++}
++/* }}} */
++
+ /* {{{ Returns the key name of this array shape element */
+ ZEND_METHOD(ReflectionArrayShapeElement, getName)
+ {
+diff --git a/ext/reflection/php_reflection.stub.php b/ext/reflection/php_reflection.stub.php
+index 35b4270c..bcca2c4f 100644
+--- a/ext/reflection/php_reflection.stub.php
++++ b/ext/reflection/php_reflection.stub.php
+@@ -767,6 +767,9 @@ public function getElementCount(): int {}
+ 
+     /** Get the number of required (non-optional) elements */
+     public function getRequiredElementCount(): int {}
++
++    /** Check if this is a closed shape (no extra keys allowed) */
++    public function isClosed(): bool {}
+ }
+ 
+ /** Represents an element in an array shape type */
+diff --git a/ext/reflection/php_reflection_arginfo.h b/ext/reflection/php_reflection_arginfo.h
+index d9eb0ecd..32e9589d 100644
+Binary files a/ext/reflection/php_reflection_arginfo.h and b/ext/reflection/php_reflection_arginfo.h differ

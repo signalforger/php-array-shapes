@@ -29,6 +29,7 @@
 - [Shape Type Aliases](#shape-type-aliases)
   - [Shape Autoloading](#shape-autoloading)
   - [shape_exists() Function](#shape_exists-function)
+- [Closed Shapes](#closed-shapes)
 - [Reflection API](#reflection-api)
   - [ReflectionArrayShapeType](#reflectionarrayshapetype)
   - [ReflectionTypedArrayType](#reflectiontypedarraytype)
@@ -230,10 +231,11 @@ array<string, int>             // Dictionary: string keys, int values
 array<array<int>>              // List of integer lists
 
 // Array shapes (for structured data)
-array{id: int, name: string}   // Required keys
+array{id: int, name: string}   // Required keys (open: extra keys allowed)
 array{id: int, email?: string} // Optional key (may be absent)
 array{data: ?string}           // Nullable value (can be null)
 array{user: array{id: int}}    // Nested shapes
+array{id: int, name: string}!  // Closed shape (no extra keys allowed)
 
 // Shape type aliases (for reusability)
 shape User = array{id: int, name: string};
@@ -444,6 +446,38 @@ if (shape_exists('User', false)) { ... }
 
 // Check with autoloading (default)
 if (shape_exists('User')) { ... }
+```
+
+## Closed Shapes
+
+By default, array shapes are **open**: they allow extra keys beyond those declared. This is pragmatic for API responses where you often don't care about additional fields.
+
+For stricter validation, use the `!` suffix to create a **closed shape** that rejects extra keys:
+
+```php
+// Open shape (default): extra keys allowed
+function getUser(): array{id: int, name: string} {
+    return ['id' => 1, 'name' => 'Alice', 'extra' => 'ok'];  // Valid
+}
+
+// Closed shape: no extra keys allowed
+function getStrictUser(): array{id: int, name: string}! {
+    return ['id' => 1, 'name' => 'Alice', 'extra' => 'fail'];  // TypeError!
+}
+```
+
+Use closed shapes when:
+- You need to prevent data leakage (e.g., returning internal fields to clients)
+- You want to catch typos in key names
+- Your contract requires an exact structure
+
+Reflection supports closed shapes:
+
+```php
+$ref = new ReflectionFunction('getStrictUser');
+$type = $ref->getReturnType();
+echo $type->isClosed();  // true
+echo $type;              // array{id: int, name: string}!
 ```
 
 ## Reflection API
@@ -693,8 +727,9 @@ class IntProvider extends NumberProvider {
 - [x] Reflection API support (`ReflectionArrayType`, `ReflectionArrayShapeType`)
 - [x] Runtime validation with detailed error messages
 - [x] **Property types**: `public array<int> $ids;`, `public array{id: int} $user;`
+- [x] **Closed shapes**: `array{id: int}!` (no extra keys allowed)
 
-All 75 tests pass (72 pass + 3 expected failures for autoloading feature).
+All 79 tests pass (76 pass + 3 expected failures for autoloading feature).
 
 ## Why Native Types Instead of Static Analysis?
 
@@ -791,7 +826,6 @@ Potential future enhancements (not part of this RFC):
 1. **Readonly shapes**: Immutable array structures
 2. **Shape inheritance**: `shape Admin extends User`
 3. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
-4. **Closed shapes**: `array{id: int}!` (exact match, no extra keys)
 
 ## Source Code
 
@@ -811,6 +845,7 @@ Potential future enhancements (not part of this RFC):
 - **v1.4 (2025-12-31):** Added `shape` keyword, autoloading, `shape_exists()`
 - **v2.0 (2026-01-03):** Always-on validation, code quality improvements, updated documentation
 - **v2.1 (2026-01-03):** Added property type support for typed arrays and array shapes
+- **v2.2 (2026-01-03):** Added closed shapes `array{...}!` for strict key validation
 
 ## References
 

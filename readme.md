@@ -38,6 +38,14 @@
   - [GraphQL Schema Generation](#graphql-schema-generation)
 - [Variance and Inheritance](#variance-and-inheritance)
 - [Implementation Status](#implementation-status)
+- [Performance Optimizations](#performance-optimizations)
+  - [Element Type Caching](#element-type-caching)
+  - [Key Type Caching](#key-type-caching)
+  - [Class Entry Caching](#class-entry-caching)
+  - [Object Array Optimizations](#object-array-optimizations)
+  - [SIMD Validation (AVX2)](#simd-validation-avx2)
+  - [Recursion Depth Limit](#recursion-depth-limit)
+  - [Cache Invalidation](#cache-invalidation)
 - [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
 - [Why Not Full Generics?](#why-not-full-generics)
 - [Backward Compatibility](#backward-compatibility)
@@ -770,47 +778,176 @@ All 79 tests pass (76 pass + 3 expected failures for autoloading feature).
 
 ## Performance Optimizations
 
-The implementation includes several optimizations for typed array validation:
+The implementation includes several optimizations to minimize the runtime cost of typed array validation. These optimizations are implemented in the Zend engine (`Zend/zend_execute.c`, `Zend/zend_hash.c`, `Zend/zend_types.h`).
 
 ### Element Type Caching
 
-When validating `array<T>`, the element type is cached in the HashTable's `nValidatedElemType` field. Subsequent validations of the same array skip re-validation if the cached type matches.
+When validating `array<T>`, the validated element type is cached in the HashTable's `nValidatedElemType` field (a single byte in the HashTable structure). On subsequent validations:
+
+1. If the cached type matches the expected type, validation is skipped entirely
+2. The cache uses PHP's internal type codes (`IS_LONG`, `IS_STRING`, etc.)
+3. Complex types that can't be cached fall back to full validation
 
 ```php
-function getIds(): array<int> {
-    $arr = [1, 2, 3, 4, 5];
-    return $arr;  // First call: validates all elements
-    // If returned again, cache is hit
+function process(array<int> $ids): void {
+    // First call: validates all elements, caches IS_LONG
+    validate($ids);
+
+    // Second call: cache hit, O(1) instead of O(n)
+    validate($ids);
 }
 ```
 
+**Implementation**: The cache is stored in `ht->u.v.nValidatedElemType` and checked via `HT_ELEM_TYPE_IS_VALID()` macro.
+
 ### Key Type Caching
 
-For `array<K, V>` types, key types are cached in `nValidatedKeyType`. Packed arrays (sequential integer keys) have a fast path that skips iteration entirely.
+For `array<K, V>` map types, key types are cached in `nValidatedKeyType` using a bitmask:
+
+| Key Type | Bitmask |
+|----------|---------|
+| `int` keys only | `MAY_BE_LONG` |
+| `string` keys only | `MAY_BE_STRING` |
+| Mixed keys | `MAY_BE_LONG \| MAY_BE_STRING` |
+
+**Fast path for packed arrays**: PHP internally distinguishes "packed" arrays (sequential integer keys 0, 1, 2...) from "hash" arrays. For `array<int, V>` validation:
+
+```php
+function getScores(): array<int, float> {
+    return [98.5, 87.2, 92.0];  // Packed array - O(1) key validation
+}
+```
+
+Packed arrays skip key iteration entirely since they can only have integer keys by definition.
 
 ### Class Entry Caching
 
-When validating `array<ClassName>`, the class entry lookup is cached thread-locally. Repeated validations of arrays with the same class constraint avoid redundant lookups.
+When validating `array<ClassName>`, the class lookup (`zend_lookup_class()`) is cached thread-locally:
+
+```c
+ZEND_TLS zend_string *zend_cached_class_name = NULL;
+ZEND_TLS zend_class_entry *zend_cached_class_entry = NULL;
+```
+
+This means:
+- First validation: looks up class, caches result
+- Subsequent validations of same class type: cache hit, no lookup
+
+```php
+function getUsers(): array<User> {
+    // First call: zend_lookup_class("User"), caches result
+    // All subsequent calls: returns cached class entry
+}
+```
 
 ### Object Array Optimizations
 
-Arrays of objects benefit from multiple fast paths:
+Arrays of objects (`array<ClassName>`) have three optimization levels:
 
-1. **Exact class match**: When an object's class pointer equals the expected class, inheritance checks are skipped
-2. **Monomorphic arrays**: When all objects are the same concrete type, only the first element requires an `instanceof` check
-3. **Packed array fast path**: Packed arrays (sequential indices) use direct pointer access
+**1. Exact Class Match (Pointer Comparison)**
+
+When an object's class pointer equals the expected class exactly, no inheritance check is needed:
+
+```php
+class User {}
+class Admin extends User {}
+
+function getUsers(): array<User> {
+    return [new User(), new User()];  // Pointer comparison only
+}
+```
+
+**2. Monomorphic Array Detection**
+
+If all objects in an array are the same concrete type, only the first element needs a full `instanceof` check:
+
+```php
+function getAdmins(): array<User> {
+    // First element: full instanceof check
+    // Remaining elements: pointer comparison against first
+    return [new Admin(), new Admin(), new Admin()];
+}
+```
+
+**3. Packed Array Fast Path**
+
+For packed arrays of objects, the implementation uses direct pointer access instead of hash table iteration:
+
+```c
+// Direct access: data[i] instead of ZEND_HASH_FOREACH
+for (uint32_t i = 0; i < count; i++) {
+    zend_class_entry *obj_ce = Z_OBJCE(data[i]);
+    // validate...
+}
+```
 
 ### SIMD Validation (AVX2)
 
-On x86-64 systems with AVX2 support, large packed arrays of integers or floats (16+ elements) use SIMD instructions to validate 8 elements simultaneously.
+On x86-64 systems with AVX2 support, large packed arrays of primitive types use SIMD instructions to validate 8 elements simultaneously:
+
+```c
+#ifdef __AVX2__
+// Validate 8 integers at once using 256-bit registers
+__m256i types = _mm256_i32gather_epi32(type_ptr, gather_indices, 4);
+__m256i cmp = _mm256_cmpeq_epi32(type_bytes, expected_type);
+if (_mm256_movemask_epi8(cmp) != 0xFFFFFFFF) {
+    // At least one type mismatch - fall back to scalar
+}
+#endif
+```
+
+**When SIMD kicks in**:
+- Packed arrays only (sequential integer keys)
+- 16+ elements (threshold defined by `ZEND_SIMD_MIN_ELEMENTS`)
+- Validating `array<int>` or `array<float>`
+
+**Performance benefit**: ~8x throughput for type checking on large numeric arrays.
 
 ### Recursion Depth Limit
 
-Nested array validation is limited to 128 levels (`ZEND_TYPED_ARRAY_MAX_DEPTH`) to prevent stack overflow on deeply nested or circular structures.
+Nested array validation uses a thread-local depth counter to prevent stack overflow:
+
+```c
+ZEND_TLS int zend_typed_array_recursion_depth = 0;
+#define ZEND_TYPED_ARRAY_MAX_DEPTH 128
+```
+
+This handles:
+- Deeply nested structures: `array<array<array<array<int>>>>`
+- Circular references (detected and handled gracefully)
+
+```php
+// Safe: recursion limit prevents stack overflow
+function deep(): array<array<array<array<array<int>>>>> {
+    return [[[[[1, 2, 3]]]]];
+}
+```
 
 ### Cache Invalidation
 
-All caches are automatically invalidated when arrays are mutated (adding/removing elements, clearing). This is handled transparently in the Zend engine's hash table operations.
+All type caches are automatically invalidated when arrays are mutated. The invalidation hooks are placed in `Zend/zend_hash.c`:
+
+| Operation | Cache Invalidated |
+|-----------|-------------------|
+| `zend_hash_add()` | Element type + key type |
+| `zend_hash_update()` | Element type + key type |
+| `zend_hash_del()` | Element type + key type |
+| `zend_hash_clean()` | Element type + key type |
+| `zend_hash_index_add()` | Element type |
+| `zend_hash_index_del()` | Element type |
+
+**Implementation**: Uses `HT_INVALIDATE_ELEM_TYPE()` and `HT_INVALIDATE_KEY_TYPE()` macros after mutation operations.
+
+### Performance Summary
+
+| Scenario | Optimization | Benefit |
+|----------|--------------|---------|
+| Repeated validation of same array | Element/key type cache | O(1) vs O(n) |
+| Packed array with int keys | Packed array fast path | Skip key iteration |
+| Same class type validated repeatedly | Class entry cache | Skip class lookup |
+| Array of same concrete type | Monomorphic detection | 1 instanceof vs n |
+| Large numeric arrays (16+) | SIMD/AVX2 | ~8x throughput |
+| Deep nesting | Recursion limit | Prevents stack overflow |
 
 ## Why Native Types Instead of Static Analysis?
 

@@ -3518,7 +3518,7 @@ index 3bb612c8..3d543fc1 100644
  #define ZEND_ARG_USES_STRICT_TYPES() \
  	(EG(current_execute_data)->prev_execute_data && \
 diff --git a/Zend/zend_execute.c b/Zend/zend_execute.c
-index bd39b79a..ee2a420c 100644
+index bd39b79a..a4b29b60 100644
 --- a/Zend/zend_execute.c
 +++ b/Zend/zend_execute.c
 @@ -1068,6 +1068,9 @@ ZEND_API bool zend_never_inline zend_verify_property_type(const zend_property_in
@@ -3863,7 +3863,7 @@ index bd39b79a..ee2a420c 100644
  }
  
 +/* Thread-local recursion depth counter for nested array validation */
-+static ZEND_TLS int zend_typed_array_recursion_depth = 0;
++ZEND_TLS int zend_typed_array_recursion_depth = 0;
 +
  static zend_always_inline bool zend_verify_array_elements_union(HashTable *ht, const zend_type *element_type)
  {
@@ -3916,8 +3916,8 @@ index bd39b79a..ee2a420c 100644
 + * Caches the last looked up class name and its corresponding class entry.
 + * This avoids repeated zend_lookup_class() calls for the same class type.
 + */
-+static ZEND_TLS zend_string *zend_cached_class_name = NULL;
-+static ZEND_TLS zend_class_entry *zend_cached_class_entry = NULL;
++ZEND_TLS zend_string *zend_cached_class_name = NULL;
++ZEND_TLS zend_class_entry *zend_cached_class_entry = NULL;
 +
 +static zend_always_inline zend_class_entry *zend_lookup_class_cached(zend_string *class_name)
 +{

@@ -68,38 +68,83 @@ function getWeather(string $city): array{temp: float, humidity: int, conditions:
 }
 ```
 
-## This is NOT About DTOs
+## Array Shapes Complement DTOs
 
-A common misconception: "Why not just use classes/DTOs?"
+A common reaction: "Why not just use classes/DTOs?"
 
-**These features work with arrays, not objects.** They're designed for the many situations where arrays are the right tool:
+**Array shapes don't replace DTOs—they complement them.** The key insight is that arrays earn their keep at the boundaries of your application, where data enters from external sources:
 
-- **Database results** — PDO and other drivers return arrays
-- **JSON APIs** — `json_decode()` returns arrays
-- **Configuration files** — Often loaded as arrays
-- **Legacy code** — Millions of lines of PHP use arrays for structured data
-- **Interoperability** — Arrays are PHP's universal data interchange format
-
-You don't have to choose between arrays and objects. Use objects when you need behavior (methods), use typed arrays when you're working with data.
+### Where Array Shapes Shine
 
 ```php
-// Arrays for data from external sources
-function getApiUser(): array{id: int, name: string} {
-    return json_decode($response, true);
+// Database results - PDO returns arrays, not objects
+function fetchUser(PDO $db, int $id): array{id: int, name: string, email: string} {
+    $stmt = $db->prepare("SELECT id, name, email FROM users WHERE id = ?");
+    $stmt->execute([$id]);
+    return $stmt->fetch(PDO::FETCH_ASSOC);  // Returns array, validated by type
 }
 
-// Objects when you need behavior
+// API responses - json_decode returns arrays
+function getGitHubUser(string $username): array{login: string, id: int, avatar_url: string} {
+    $json = file_get_contents("https://api.github.com/users/$username");
+    return json_decode($json, true);  // Validated: ensures expected structure
+}
+
+// Webhook payloads - external data you don't control
+function handleStripeWebhook(array{type: string, data: array{object: array{id: string}}} $payload): void {
+    // Type system guarantees the structure before you use it
+    $eventType = $payload['type'];
+    $objectId = $payload['data']['object']['id'];
+}
+```
+
+### The Boundary Pattern: Arrays In, DTOs Inside
+
+A practical pattern: use array shapes at boundaries, convert to DTOs for internal logic:
+
+```php
+// Array shape for external data
+function fetchUserFromApi(): array{id: int, name: string, email: string} {
+    return json_decode($this->http->get('/api/user'), true);
+}
+
+// DTO for internal domain logic
 class User {
     public function __construct(
-        public int $id,
-        public string $name
+        public readonly int $id,
+        public readonly string $name,
+        public readonly string $email
     ) {}
 
-    public function greet(): string {
-        return "Hello, {$this->name}!";
+    public function getDisplayName(): string {
+        return strtoupper($this->name);
+    }
+}
+
+// Convert at the boundary
+class UserService {
+    public function getUser(): User {
+        $data = $this->fetchUserFromApi();  // array{id: int, name: string, email: string}
+        return new User($data['id'], $data['name'], $data['email']);  // DTO
     }
 }
 ```
+
+### When to Use What
+
+| Scenario | Use Array Shape | Use DTO/Class |
+|----------|-----------------|---------------|
+| Database query results | ✓ | |
+| API response parsing | ✓ | |
+| JSON deserialization | ✓ | |
+| Configuration loading | ✓ | |
+| Webhook/event payloads | ✓ | |
+| Domain entities with behavior | | ✓ |
+| Objects with methods | | ✓ |
+| Complex business logic | | ✓ |
+| Internal application state | | ✓ |
+
+**Arrays are data. Objects are behavior.** Array shapes give you type safety for data at the edges of your system, where DTOs would add ceremony without benefit.
 
 ## Quick Reference
 

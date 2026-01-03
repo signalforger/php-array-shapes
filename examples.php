@@ -2,7 +2,9 @@
 /**
  * PHP Typed Arrays & Array Shapes - Examples
  *
- * Focus: Typed collections with classes (array<ClassName>)
+ * Two complementary features:
+ * 1. Typed Collections: array<ClassName> for lists of objects
+ * 2. Array Shapes: array{key: type} for structured data from external sources
  *
  * Run with: ./php-src/sapi/cli/php examples.php
  */
@@ -10,15 +12,22 @@
 echo "=== PHP Typed Arrays & Array Shapes ===\n\n";
 
 // =============================================================================
-// DTOs / Value Objects
+// PART 1: TYPED COLLECTIONS — array<ClassName>
 // =============================================================================
 
+echo "--- PART 1: Typed Collections (array<ClassName>) ---\n\n";
+
+// DTOs for internal domain logic
 class User {
     public function __construct(
         public readonly int $id,
         public readonly string $name,
         public readonly string $email
     ) {}
+
+    public function getDisplayName(): string {
+        return strtoupper($this->name);
+    }
 }
 
 class Product {
@@ -29,20 +38,9 @@ class Product {
     ) {}
 }
 
-class OrderItem {
-    public function __construct(
-        public readonly Product $product,
-        public readonly int $quantity
-    ) {}
-
-    public function getSubtotal(): float {
-        return $this->product->price * $this->quantity;
-    }
-}
-
-// =============================================================================
+// -----------------------------------------------------------------------------
 // 1. Typed Collection: array<User>
-// =============================================================================
+// -----------------------------------------------------------------------------
 
 function getUsers(): array<User> {
     return [
@@ -52,56 +50,18 @@ function getUsers(): array<User> {
     ];
 }
 
-echo "1. array<User> - Collection of User objects:\n";
+echo "1. array<User> - Collection of DTOs:\n";
 foreach (getUsers() as $user) {
-    echo "   - {$user->name} ({$user->email})\n";
+    echo "   - {$user->getDisplayName()} ({$user->email})\n";
 }
 echo "\n";
 
-// =============================================================================
-// 2. Typed Collection: array<Product>
-// =============================================================================
-
-function getProducts(): array<Product> {
-    return [
-        new Product(101, 'Laptop', 999.99),
-        new Product(102, 'Mouse', 29.99),
-        new Product(103, 'Keyboard', 79.99),
-    ];
-}
-
-echo "2. array<Product> - Collection of Product objects:\n";
-foreach (getProducts() as $product) {
-    echo "   - {$product->name}: \${$product->price}\n";
-}
-echo "\n";
-
-// =============================================================================
-// 3. Typed Collection as Parameter
-// =============================================================================
-
-function calculateTotal(array<OrderItem> $items): float {
-    $total = 0.0;
-    foreach ($items as $item) {
-        $total += $item->getSubtotal();
-    }
-    return $total;
-}
-
-$orderItems = [
-    new OrderItem(new Product(1, 'Widget', 10.00), 3),
-    new OrderItem(new Product(2, 'Gadget', 25.00), 2),
-];
-
-echo "3. array<OrderItem> as parameter:\n";
-echo "   Order total: \$" . calculateTotal($orderItems) . "\n\n";
-
-// =============================================================================
-// 4. Repository Pattern with Typed Collections
-// =============================================================================
+// -----------------------------------------------------------------------------
+// 2. Repository returning typed collection
+// -----------------------------------------------------------------------------
 
 class UserRepository {
-    private array $users = [];
+    private array $users;
 
     public function __construct() {
         $this->users = [
@@ -114,119 +74,181 @@ class UserRepository {
         return array_values($this->users);
     }
 
-    public function findById(int $id): ?User {
-        return $this->users[$id] ?? null;
-    }
-
     public function findByIds(array<int> $ids): array<User> {
-        $result = [];
-        foreach ($ids as $id) {
-            if (isset($this->users[$id])) {
-                $result[] = $this->users[$id];
-            }
-        }
-        return $result;
+        return array_filter(
+            $this->users,
+            fn($u) => in_array($u->id, $ids)
+        );
     }
 }
 
 $repo = new UserRepository();
-
-echo "4. Repository pattern with array<User>:\n";
+echo "2. Repository with array<User>:\n";
 echo "   findAll(): " . count($repo->findAll()) . " users\n";
-echo "   findByIds([1, 2]): " . count($repo->findByIds([1, 2])) . " users\n\n";
+echo "   findByIds([1]): " . count($repo->findByIds([1])) . " user\n\n";
 
 // =============================================================================
-// 5. Service Layer with Typed Collections
+// PART 2: ARRAY SHAPES — For External Data (APIs, Databases)
 // =============================================================================
 
-class UserService {
-    public function __construct(
-        private UserRepository $repository
-    ) {}
+echo "--- PART 2: Array Shapes (External Data Boundaries) ---\n\n";
 
-    public function getActiveUsers(): array<User> {
-        // In real code, this would filter by active status
-        return $this->repository->findAll();
-    }
+// -----------------------------------------------------------------------------
+// 3. Database query result - PDO returns arrays, not objects
+// -----------------------------------------------------------------------------
 
-    public function transformUsers(array<User> $users): array<array{id: int, displayName: string}> {
-        $result = [];
-        foreach ($users as $user) {
-            $result[] = [
-                'id' => $user->id,
-                'displayName' => strtoupper($user->name),
-            ];
-        }
-        return $result;
-    }
-}
-
-$service = new UserService($repo);
-
-echo "5. Service layer transforming array<User> to array<shape>:\n";
-foreach ($service->transformUsers($repo->findAll()) as $data) {
-    echo "   - ID {$data['id']}: {$data['displayName']}\n";
-}
-echo "\n";
-
-// =============================================================================
-// 6. Map Type: array<string, User>
-// =============================================================================
-
-function getUsersByEmail(): array<string, User> {
+function fetchUserFromDb(int $id): array{id: int, name: string, email: string, created_at: string} {
+    // Simulating: $stmt->fetch(PDO::FETCH_ASSOC)
     return [
-        'alice@example.com' => new User(1, 'Alice', 'alice@example.com'),
-        'bob@example.com' => new User(2, 'Bob', 'bob@example.com'),
+        'id' => $id,
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'created_at' => '2024-01-15 10:30:00'
     ];
 }
 
-echo "6. array<string, User> - Map with email keys:\n";
-$userMap = getUsersByEmail();
-echo "   alice@example.com -> {$userMap['alice@example.com']->name}\n\n";
+echo "3. Database result (array shape):\n";
+$dbUser = fetchUserFromDb(1);
+echo "   Fetched: {$dbUser['name']} (ID: {$dbUser['id']})\n\n";
+
+// -----------------------------------------------------------------------------
+// 4. API response - json_decode returns arrays
+// -----------------------------------------------------------------------------
+
+function fetchGitHubUser(string $username): array{login: string, id: int, name: ?string, public_repos: int} {
+    // Simulating: json_decode($response, true)
+    return [
+        'login' => $username,
+        'id' => 12345,
+        'name' => 'Alice Developer',
+        'public_repos' => 42
+    ];
+}
+
+echo "4. API response (array shape):\n";
+$ghUser = fetchGitHubUser('alice');
+echo "   GitHub user: {$ghUser['login']} has {$ghUser['public_repos']} repos\n\n";
+
+// -----------------------------------------------------------------------------
+// 5. Webhook payload - external data you don't control
+// -----------------------------------------------------------------------------
+
+function handleWebhook(array{event: string, data: array{id: string, amount: int}} $payload): string {
+    return "Received {$payload['event']} for {$payload['data']['id']}: \${$payload['data']['amount']}";
+}
+
+$webhookPayload = [
+    'event' => 'payment.completed',
+    'data' => ['id' => 'pay_123', 'amount' => 5000]
+];
+
+echo "5. Webhook payload (array shape):\n";
+echo "   " . handleWebhook($webhookPayload) . "\n\n";
 
 // =============================================================================
-// 7. Combining Typed Arrays with Shapes
+// PART 3: THE BOUNDARY PATTERN — Arrays In, DTOs Inside
 // =============================================================================
+
+echo "--- PART 3: The Boundary Pattern ---\n\n";
+
+// -----------------------------------------------------------------------------
+// 6. Convert array shape to DTO at the boundary
+// -----------------------------------------------------------------------------
+
+class UserService {
+    // External boundary: array shape from API/database
+    private function fetchFromApi(int $id): array{id: int, name: string, email: string} {
+        // Simulating external API call
+        return ['id' => $id, 'name' => 'Alice', 'email' => 'alice@example.com'];
+    }
+
+    // Internal: returns DTO with behavior
+    public function getUser(int $id): User {
+        $data = $this->fetchFromApi($id);  // Array shape at boundary
+        return new User(                    // Convert to DTO
+            $data['id'],
+            $data['name'],
+            $data['email']
+        );
+    }
+}
+
+$service = new UserService();
+$user = $service->getUser(1);
+
+echo "6. Boundary pattern - Array -> DTO:\n";
+echo "   External data fetched as array shape\n";
+echo "   Converted to User DTO: {$user->getDisplayName()}\n\n";
+
+// -----------------------------------------------------------------------------
+// 7. Collection of shapes from database, converted to DTOs
+// -----------------------------------------------------------------------------
+
+function fetchAllUsersFromDb(): array<array{id: int, name: string, email: string}> {
+    // Simulating: fetchAll(PDO::FETCH_ASSOC)
+    return [
+        ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'],
+        ['id' => 2, 'name' => 'Bob', 'email' => 'bob@example.com'],
+    ];
+}
+
+function convertToUsers(array<array{id: int, name: string, email: string}> $rows): array<User> {
+    return array_map(
+        fn($row) => new User($row['id'], $row['name'], $row['email']),
+        $rows
+    );
+}
+
+echo "7. Database rows -> DTO collection:\n";
+$rows = fetchAllUsersFromDb();
+echo "   Fetched " . count($rows) . " rows as array<shape>\n";
+$users = convertToUsers($rows);
+echo "   Converted to " . count($users) . " User DTOs\n\n";
+
+// =============================================================================
+// PART 4: COMBINING BOTH — Real-World Patterns
+// =============================================================================
+
+echo "--- PART 4: Combined Real-World Patterns ---\n\n";
+
+// -----------------------------------------------------------------------------
+// 8. API response containing typed collection
+// -----------------------------------------------------------------------------
 
 function getApiResponse(): array{
     success: bool,
-    users: array<User>,
-    total: int
+    data: array<User>,
+    meta: array{total: int, page: int}
 } {
-    $users = getUsers();
     return [
         'success' => true,
-        'users' => $users,
-        'total' => count($users),
+        'data' => getUsers(),
+        'meta' => ['total' => 3, 'page' => 1]
     ];
 }
 
-echo "7. Shape containing array<User>:\n";
+echo "8. API response with array<User>:\n";
 $response = getApiResponse();
-echo "   success: " . ($response['success'] ? 'true' : 'false') . "\n";
-echo "   total: {$response['total']} users\n\n";
-
-// =============================================================================
-// 8. Type Error Example (commented out - would throw TypeError)
-// =============================================================================
-
-echo "8. Type safety - these would throw TypeError:\n";
-echo "   - Returning string in array<int>\n";
-echo "   - Returning stdClass in array<User>\n";
-echo "   - Missing required shape key\n\n";
-
-// Uncomment to see the error:
-// function brokenGetUsers(): array<User> {
-//     return [new User(1, 'Alice', 'a@b.com'), new stdClass()]; // TypeError!
-// }
+echo "   Success: " . ($response['success'] ? 'yes' : 'no') . "\n";
+echo "   Users: " . count($response['data']) . "\n";
+echo "   Page: {$response['meta']['page']} of {$response['meta']['total']}\n\n";
 
 // =============================================================================
 // Summary
 // =============================================================================
 
-echo "=== All examples completed! ===\n";
-echo "\nKey patterns demonstrated:\n";
-echo "  - array<ClassName>     : Typed collection of objects\n";
-echo "  - array<string, Class> : Map with typed values\n";
-echo "  - array<int>           : Primitive typed collection\n";
-echo "  - array{key: type}     : Structured data shapes\n";
+echo "=== Summary ===\n\n";
+echo "Array Shapes vs DTOs - When to use what:\n\n";
+echo "  USE ARRAY SHAPES for:\n";
+echo "    - Database query results (PDO returns arrays)\n";
+echo "    - API responses (json_decode returns arrays)\n";
+echo "    - Webhook payloads (external data)\n";
+echo "    - Configuration files\n\n";
+echo "  USE DTOs/CLASSES for:\n";
+echo "    - Domain entities with behavior (methods)\n";
+echo "    - Internal application state\n";
+echo "    - Complex business logic\n\n";
+echo "  THE BOUNDARY PATTERN:\n";
+echo "    - Array shapes at edges (external data in)\n";
+echo "    - Convert to DTOs for internal logic\n";
+echo "    - Best of both worlds!\n";

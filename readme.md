@@ -1,6 +1,6 @@
 # PHP RFC: Typed Arrays & Array Shapes
 
-* Version: 2.0
+* Version: 2.1
 * Date: 2026-01-03
 * Author: [Signalforger] <signalforger@signalforge.eu>
 * Status: Implemented (Proof of Concept)
@@ -167,6 +167,13 @@ array{user: array{id: int}}    // Nested shapes
 shape User = array{id: int, name: string};
 shape Point = array{x: int, y: int};
 shape Config = array{debug: bool, cache?: int};
+
+// Property types — typed class properties
+class Example {
+    public array<int> $ids = [];
+    public array<User> $users;
+    public array{id: int, name: string} $config;
+}
 ```
 
 ## Real-World Examples
@@ -279,6 +286,46 @@ TypeError: getUser(): Return value must be of type array{name: string, ...},
 // For array shapes - wrong type
 TypeError: getUser(): Return value must be of type array{id: int, ...},
            array key "id" is string
+```
+
+## Property Types
+
+Typed arrays and array shapes work on class properties, with runtime validation on assignment:
+
+```php
+class UserRepository {
+    public array<User> $users = [];
+    public array{host: string, port: int} $dbConfig;
+
+    public function __construct() {
+        $this->dbConfig = ['host' => 'localhost', 'port' => 3306];
+    }
+
+    public function addUser(User $user): void {
+        $this->users[] = $user;  // Validated: must be User object
+    }
+}
+
+// Property validation errors
+$repo = new UserRepository();
+$repo->dbConfig = ['host' => 'localhost'];  // TypeError: missing key "port"
+$repo->dbConfig = ['host' => 123, 'port' => 3306];  // TypeError: key "host" is int
+```
+
+### Error Messages for Properties
+
+```php
+// Typed array property
+TypeError: Cannot assign to property UserRepository::$users of type array<User>,
+           array element at index 0 is string
+
+// Array shape property - missing key
+TypeError: Cannot assign to property UserRepository::$dbConfig of type array{port: int, ...},
+           array given with missing key "port"
+
+// Array shape property - wrong type
+TypeError: Cannot assign to property UserRepository::$dbConfig of type array{host: string, ...},
+           array key "host" is int
 ```
 
 ## Shape Type Aliases
@@ -408,8 +455,9 @@ class IntProvider extends NumberProvider {
 - [x] Shape autoloading via `spl_autoload_register()`
 - [x] Reflection API support (`ReflectionArrayType`, `ReflectionArrayShapeType`)
 - [x] Runtime validation with detailed error messages
+- [x] **Property types**: `public array<int> $ids;`, `public array{id: int} $user;`
 
-All 72 tests pass (69 pass + 3 expected failures for autoloading feature).
+All 75 tests pass (72 pass + 3 expected failures for autoloading feature).
 
 ## Why Native Types Instead of Static Analysis?
 
@@ -440,11 +488,10 @@ This proposal is fully backward compatible:
 
 Potential future enhancements (not part of this RFC):
 
-1. **Property types**: `public array<string> $tags;`
-2. **Readonly shapes**: Immutable array structures
-3. **Shape inheritance**: `shape Admin extends User`
-4. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
-5. **Closed shapes**: `array{id: int}!` (exact match, no extra keys)
+1. **Readonly shapes**: Immutable array structures
+2. **Shape inheritance**: `shape Admin extends User`
+3. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
+4. **Closed shapes**: `array{id: int}!` (exact match, no extra keys)
 
 ## Source Code
 
@@ -460,6 +507,7 @@ Potential future enhancements (not part of this RFC):
 - **v1.3 (2025-12-30):** Fixed nested `array<array<T>>` parsing
 - **v1.4 (2025-12-31):** Added `shape` keyword, autoloading, `shape_exists()`
 - **v2.0 (2026-01-03):** Always-on validation, code quality improvements, updated documentation
+- **v2.1 (2026-01-03):** Added property type support for typed arrays and array shapes
 
 ## References
 

@@ -34,6 +34,7 @@
 - [Variance and Inheritance](#variance-and-inheritance)
 - [Implementation Status](#implementation-status)
 - [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
+- [Why Not Full Generics?](#why-not-full-generics)
 - [Backward Compatibility](#backward-compatibility)
 - [Future Scope](#future-scope)
 - [Source Code](#source-code)
@@ -508,6 +509,69 @@ Tools like PHPStan and Psalm already support array shapes via docblocks. Why add
 | External data | Validated | Trusted blindly |
 
 **Native types and static analysis are complementary** - static analysis catches bugs before runtime, native types catch bugs that slip through (especially from external data sources).
+
+## Why Not Full Generics?
+
+A common question: "Why not just implement generics like Java/C#/TypeScript?"
+
+### The 90% Solution
+
+Looking at how generics are actually used in other languages, the overwhelming majority of cases fall into two categories:
+
+1. **Typed collections**: `List<User>`, `Map<string, int>`, `Set<Product>`
+2. **Structured data**: `Result<T>`, `Response<Data>`, `Pair<A, B>`
+
+Typed arrays (`array<User>`) and array shapes (`array{success: bool, data: mixed}`) solve both of these directly—covering 90%+ of real-world generic use cases.
+
+### What's Left?
+
+The remaining cases where full generics would help:
+
+```php
+// Generic class - but PHP already has a solution
+class Box<T> {
+    public function __construct(private T $value) {}
+    public function get(): T { return $this->value; }
+}
+
+// In PHP, you just use mixed + runtime checks or separate classes
+class Box {
+    public function __construct(private mixed $value) {}
+    public function get(): mixed { return $this->value; }
+}
+
+// Or for type safety, create specific classes
+class UserBox {
+    public function __construct(private User $value) {}
+    public function get(): User { return $this->value; }
+}
+```
+
+For the rare cases where you truly need generic containers, PHP's approach of using `mixed` with runtime validation or creating specific typed classes works well.
+
+### Complexity vs. Value
+
+Full generics would require:
+
+- **Type erasure or reification** - Major engine changes
+- **Variance rules** - Complex covariance/contravariance for classes
+- **Generic constraints** - `where T extends Serializable`
+- **Type inference** - Inferring `T` from usage context
+- **Backward compatibility** - Existing code must keep working
+
+This is years of implementation work for diminishing returns. Typed arrays and array shapes deliver the practical benefits now, with a fraction of the complexity.
+
+### PHP's Pragmatic Approach
+
+| Need | Generics Solution | PHP Solution |
+|------|-------------------|--------------|
+| List of users | `List<User>` | `array<User>` |
+| String-keyed map | `Map<string, int>` | `array<string, int>` |
+| API response | `Response<T>` | `array{success: bool, data: mixed}` |
+| Database row | `Row<T>` | `array{id: int, name: string}` |
+| Generic container | `Box<T>` | Class with `mixed` or specific typed class |
+
+**Typed arrays and array shapes aren't a compromise—they're a direct solution** to what developers actually need, without the complexity tax of full generics.
 
 ## Backward Compatibility
 

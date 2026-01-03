@@ -6,6 +6,40 @@
 * Status: Implemented (Proof of Concept)
 * Target Version: PHP 8.5
 
+## Table of Contents
+
+- [Introduction](#introduction)
+- [Two Complementary Features](#two-complementary-features)
+  - [Typed Arrays — For Collections](#typed-arrays--for-collections)
+  - [Array Shapes — For Structured Data](#array-shapes--for-structured-data)
+- [Array Shapes Complement DTOs](#array-shapes-complement-dtos)
+  - [Where Array Shapes Shine](#where-array-shapes-shine)
+  - [The Boundary Pattern](#the-boundary-pattern-arrays-in-dtos-inside)
+  - [When to Use What](#when-to-use-what)
+- [Quick Reference](#quick-reference)
+- [Real-World Examples](#real-world-examples)
+  - [Working with Database Results](#working-with-database-results)
+  - [Working with API Responses](#working-with-api-responses)
+  - [Configuration Arrays](#configuration-arrays)
+- [Runtime Validation](#runtime-validation)
+  - [Error Messages](#error-messages)
+- [Property Types](#property-types)
+  - [Error Messages for Properties](#error-messages-for-properties)
+- [Shape Type Aliases](#shape-type-aliases)
+  - [Shape Autoloading](#shape-autoloading)
+  - [shape_exists() Function](#shape_exists-function)
+- [Reflection API](#reflection-api)
+  - [ReflectionArrayShapeType](#reflectionarrayshapetype)
+  - [ReflectionTypedArrayType](#reflectiontypedarraytype)
+- [Variance and Inheritance](#variance-and-inheritance)
+- [Implementation Status](#implementation-status)
+- [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
+- [Backward Compatibility](#backward-compatibility)
+- [Future Scope](#future-scope)
+- [Source Code](#source-code)
+- [Changelog](#changelog)
+- [References](#references)
+
 ## Introduction
 
 PHP's type system currently supports return type declarations for scalar types, classes, and the generic `array` type. However, the `array` type provides no structural information, forcing developers to rely on documentation and static analysis tools to understand array contents.

@@ -8,6 +8,7 @@
 
 ## Table of Contents
 
+- [Try It Now (Docker)](#try-it-now-docker)
 - [Introduction](#introduction)
 - [Two Complementary Features](#two-complementary-features)
   - [Typed Arrays: For Collections](#typed-arrays-for-collections)
@@ -43,6 +44,39 @@
 - [Source Code](#source-code)
 - [Changelog](#changelog)
 - [References](#references)
+
+## Try It Now (Docker)
+
+The fastest way to try typed arrays and array shapes:
+
+```bash
+# Pull the image
+docker pull ghcr.io/signalforger/php-array-shapes:latest
+
+# Start interactive PHP shell
+docker run -it --rm ghcr.io/signalforger/php-array-shapes:latest php -a
+
+# Run a PHP file
+docker run --rm -v $(pwd):/app ghcr.io/signalforger/php-array-shapes:latest php /app/example.php
+```
+
+Available image variants:
+
+| Image | Description |
+|-------|-------------|
+| `ghcr.io/signalforger/php-array-shapes:latest` | CLI version (default) |
+| `ghcr.io/signalforger/php-array-shapes:latest-fpm` | PHP-FPM for web servers |
+| `ghcr.io/signalforger/php-array-shapes:8.5.1` | Specific version |
+
+### Build Locally
+
+If you prefer to build the image yourself:
+
+```bash
+git clone https://github.com/signalforger/php-array-shapes.git
+cd php-array-shapes
+./build-docker.sh --test
+```
 
 ## Introduction
 
@@ -761,9 +795,12 @@ Potential future enhancements (not part of this RFC):
 
 ## Source Code
 
+- **Docker Image:** `ghcr.io/signalforger/php-array-shapes:latest`
 - **Fork:** https://github.com/signalforger/php-src/tree/feature/array-shapes
-- **Patch:** See `array-shapes-implementation.patch` in this repository
-- **Build script:** `build-php-array-shapes.sh`
+- **Patch:** See `array-shapes.patch` in this repository
+- **Build scripts:**
+  - `build-docker.sh` - Build Docker image locally
+  - `build-php-array-shapes.sh` - Compile PHP from source
 
 ## Changelog
 

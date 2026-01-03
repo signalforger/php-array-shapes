@@ -31,6 +31,9 @@
 - [Reflection API](#reflection-api)
   - [ReflectionArrayShapeType](#reflectionarrayshapetype)
   - [ReflectionTypedArrayType](#reflectiontypedarraytype)
+- [API Documentation Generation](#api-documentation-generation)
+  - [OpenAPI/Swagger Generation](#openapiswagger-generation)
+  - [GraphQL Schema Generation](#graphql-schema-generation)
 - [Variance and Inheritance](#variance-and-inheritance)
 - [Implementation Status](#implementation-status)
 - [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
@@ -439,6 +442,171 @@ if ($type instanceof ReflectionTypedArrayType) {
     echo $type->getKeyType();      // Key type for array<K,V>
 }
 ```
+
+## API Documentation Generation
+
+A major benefit of native typed arrays and array shapes is automatic API documentation generation. Since types are part of the language (not comments), the Reflection API can introspect them reliably, enabling tools to generate OpenAPI/Swagger specs, GraphQL schemas, and other documentation formats from your actual code.
+
+### OpenAPI/Swagger Generation
+
+```php
+shape ProductResponse = array{
+    id: int,
+    name: string,
+    price: float,
+    tags: array<string>,
+    metadata?: array{sku: string, weight?: float}
+};
+
+class ProductController {
+    #[Route('/api/products/{id}', methods: ['GET'])]
+    public function show(int $id): ProductResponse {
+        return $this->repository->find($id);
+    }
+
+    #[Route('/api/products', methods: ['GET'])]
+    public function index(): array<ProductResponse> {
+        return $this->repository->findAll();
+    }
+}
+
+// Generate OpenAPI schema from return types
+function generateOpenApiSchema(string $class): array {
+    $schemas = [];
+    $ref = new ReflectionClass($class);
+
+    foreach ($ref->getMethods() as $method) {
+        $returnType = $method->getReturnType();
+
+        if ($returnType instanceof ReflectionArrayShapeType) {
+            $schemas[$method->getName()] = shapeToOpenApi($returnType);
+        } elseif ($returnType instanceof ReflectionTypedArrayType) {
+            $schemas[$method->getName()] = [
+                'type' => 'array',
+                'items' => typeToOpenApi($returnType->getElementType())
+            ];
+        }
+    }
+    return $schemas;
+}
+
+function shapeToOpenApi(ReflectionArrayShapeType $shape): array {
+    $properties = [];
+    $required = [];
+
+    foreach ($shape->getElements() as $element) {
+        $properties[$element->getName()] = typeToOpenApi($element->getType());
+
+        if (!$element->isOptional()) {
+            $required[] = $element->getName();
+        }
+    }
+
+    return [
+        'type' => 'object',
+        'properties' => $properties,
+        'required' => $required
+    ];
+}
+```
+
+This generates OpenAPI-compliant schemas:
+
+```yaml
+ProductResponse:
+  type: object
+  required: [id, name, price, tags]
+  properties:
+    id:
+      type: integer
+    name:
+      type: string
+    price:
+      type: number
+    tags:
+      type: array
+      items:
+        type: string
+    metadata:
+      type: object
+      properties:
+        sku:
+          type: string
+        weight:
+          type: number
+```
+
+### GraphQL Schema Generation
+
+The same reflection capabilities enable GraphQL schema generation:
+
+```php
+shape Author = array{id: int, name: string, email: string};
+shape Article = array{
+    id: int,
+    title: string,
+    content: string,
+    author: Author,
+    tags: array<string>,
+    published_at?: string
+};
+
+class ArticleResolver {
+    public function article(int $id): Article { ... }
+    public function articles(): array<Article> { ... }
+}
+
+// Generate GraphQL types from shapes
+function shapeToGraphQL(string $shapeName, ReflectionArrayShapeType $shape): string {
+    $fields = [];
+
+    foreach ($shape->getElements() as $element) {
+        $type = phpTypeToGraphQL($element->getType());
+        $nullable = $element->isOptional() ? '' : '!';
+        $fields[] = "  {$element->getName()}: {$type}{$nullable}";
+    }
+
+    return "type {$shapeName} {\n" . implode("\n", $fields) . "\n}";
+}
+```
+
+Generated GraphQL schema:
+
+```graphql
+type Author {
+  id: Int!
+  name: String!
+  email: String!
+}
+
+type Article {
+  id: Int!
+  title: String!
+  content: String!
+  author: Author!
+  tags: [String!]!
+  published_at: String
+}
+
+type Query {
+  article(id: Int!): Article
+  articles: [Article!]!
+}
+```
+
+### Single Source of Truth
+
+The key advantage: **your PHP types ARE your API contract**. No more maintaining separate type definitions that drift out of sync:
+
+| Traditional Approach | With Native Types |
+|---------------------|-------------------|
+| PHPDoc for static analysis | Native types do both |
+| Separate OpenAPI YAML files | Generated from code |
+| Separate GraphQL schema files | Generated from code |
+| Manual sync between all three | Automatic, always in sync |
+| Comments can lie | Types are enforced |
+
+When you change a return type, your API documentation updates automatically because it's generated from the same source: your actual code.
 
 ## Variance and Inheritance
 

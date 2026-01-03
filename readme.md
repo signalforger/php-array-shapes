@@ -74,9 +74,46 @@ Available image variants:
 If you prefer to build the image yourself:
 
 ```bash
-git clone https://github.com/signalforger/php-array-shapes.git
+# Clone the repository with submodules
+git clone --recursive https://github.com/signalforger/php-array-shapes.git
 cd php-array-shapes
-./build-docker.sh --test
+
+# Build the CLI image
+docker build --target cli -t php-array-shapes:latest .
+
+# Or build with FPM support
+docker build --target fpm -t php-array-shapes:fpm .
+```
+
+**Run examples:**
+
+```bash
+# Interactive PHP shell
+docker run -it --rm php-array-shapes:latest php -a
+
+# Run a script
+docker run --rm -v $(pwd):/app php-array-shapes:latest php /app/your-script.php
+
+# Quick test
+docker run --rm php-array-shapes:latest php -r '
+function getUser(): array{id: int, name: string}! {
+    return ["id" => 1, "name" => "Alice"];
+}
+var_dump(getUser());
+'
+```
+
+**Build options:**
+
+| Target | Command | Use case |
+|--------|---------|----------|
+| `cli` | `docker build --target cli -t php-array-shapes:latest .` | CLI scripts |
+| `fpm` | `docker build --target fpm -t php-array-shapes:fpm .` | Web servers |
+
+**Rebuild from scratch** (after pulling updates):
+
+```bash
+docker build --no-cache --target cli -t php-array-shapes:latest .
 ```
 
 ## Introduction

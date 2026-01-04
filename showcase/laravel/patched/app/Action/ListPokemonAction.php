@@ -1,49 +1,43 @@
 <?php
 
+/**
+ * ListPokemonAction - List Pokemon from PokeAPI
+ *
+ * Demonstrates the boundary pattern:
+ * - Input: Shape-validated request (ListPokemonRequest shape)
+ * - Output: PokemonList DTO
+ */
+
 namespace App\Action;
 
-use App\Action\Request\ListPokemonRequest;
-use App\Action\Response\PokemonListResponse;
+use App\DTO\PokemonList;
+use App\Shapes\ListPokemonRequest;
+use App\Shapes\PokeApiList;
 use Illuminate\Support\Facades\Http;
 
-/**
- * Action to list Pokemon from PokeAPI.
- *
- * @api GET /api/pokemon
- */
-class ListPokemonAction implements ActionInterface
+class ListPokemonAction
 {
-    private ?PokemonListResponse $result = null;
-
-    public function __construct(
-        private readonly ListPokemonRequest $request,
-    ) {}
-
-    public function execute(): void
+    /**
+     * Execute the action
+     *
+     * @param ListPokemonRequest $request Shape-validated request
+     * @return PokemonList DTO with pagination helpers
+     */
+    public function execute(ListPokemonRequest $request): PokemonList
     {
+        $limit = $request['limit'] ?? 20;
+        $offset = $request['offset'] ?? 0;
+
         $response = Http::get('https://pokeapi.co/api/v2/pokemon', [
-            'limit' => $this->request->limit,
-            'offset' => $this->request->offset,
+            'limit' => $limit,
+            'offset' => $offset,
         ]);
 
+        // The API response is validated against PokeApiList shape
+        /** @var PokeApiList $data */
         $data = $response->json();
 
-        $this->result = [
-            'count' => $data['count'],
-            'next' => $data['next'],
-            'previous' => $data['previous'],
-            'results' => array_map(fn($item) => [
-                'name' => $item['name'],
-                'url' => $item['url'],
-            ], $data['results']),
-        ];
-    }
-
-    public function result(): PokemonListResponse
-    {
-        if ($this->result === null) {
-            throw new \RuntimeException('Action not executed');
-        }
-        return $this->result;
+        // Convert shape-validated data to DTO
+        return PokemonList::fromShape($data);
     }
 }

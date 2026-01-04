@@ -1,34 +1,37 @@
 <?php
 
+/**
+ * ListJobsAction - List jobs with filtering and pagination
+ *
+ * Demonstrates the boundary pattern:
+ * - Input: Shape-validated request data (ListJobsRequest shape)
+ * - Output: DTO with collection methods (JobList)
+ *
+ * The shape validates user input at the boundary.
+ * The DTO provides business logic for working with results.
+ */
+
 namespace App\Action;
 
-use App\Action\Request\ListJobsRequest;
-use App\Action\Response\JobListResponse;
-use App\Action\Response\JobResponse;
-use App\Action\Response\SalaryRange;
-use App\Action\Response\PaginationMeta;
+use App\DTO\JobList;
 use App\Models\JobListing;
+use App\Shapes\ListJobsRequest;
 
-/**
- * Action to list jobs with filtering and pagination.
- *
- * @api GET /api/jobs
- */
-class ListJobsAction implements ActionInterface
+class ListJobsAction
 {
-    private ?JobListResponse $result = null;
-
-    public function __construct(
-        private readonly ListJobsRequest $request,
-    ) {}
-
-    public function execute(): void
+    /**
+     * Execute the action
+     *
+     * @param ListJobsRequest $request Shape-validated filter/pagination data
+     * @return JobList Paginated list of jobs as DTO
+     */
+    public function execute(ListJobsRequest $request): JobList
     {
         $query = JobListing::query();
 
-        // Apply filters
-        if ($this->request->query !== null) {
-            $q = $this->request->query;
+        // Apply filters from shape-validated input
+        if (isset($request['q'])) {
+            $q = $request['q'];
             $query->where(function ($qb) use ($q) {
                 $qb->where('title', 'like', "%{$q}%")
                     ->orWhere('company_name', 'like', "%{$q}%")
@@ -36,109 +39,45 @@ class ListJobsAction implements ActionInterface
             });
         }
 
-        if ($this->request->remote !== null) {
-            $query->where('remote', $this->request->remote);
+        if (isset($request['remote'])) {
+            $query->where('remote', $request['remote']);
         }
 
-        if ($this->request->jobType !== null) {
-            $query->where('job_type', $this->request->jobType);
+        if (isset($request['job_type'])) {
+            $query->where('job_type', $request['job_type']);
         }
 
-        if ($this->request->location !== null) {
-            $query->where('location', 'like', "%{$this->request->location}%");
+        if (isset($request['location'])) {
+            $query->where('location', 'like', "%{$request['location']}%");
         }
 
-        if ($this->request->source !== null) {
-            $query->where('source', $this->request->source);
+        if (isset($request['source'])) {
+            $query->where('source', $request['source']);
         }
 
-        if ($this->request->minSalary !== null) {
-            $query->where(function ($qb) {
+        if (isset($request['min_salary'])) {
+            $query->where(function ($qb) use ($request) {
                 $qb->whereNull('salary_min')
-                    ->orWhere('salary_min', '>=', $this->request->minSalary);
+                    ->orWhere('salary_min', '>=', $request['min_salary']);
             });
         }
 
-        if ($this->request->maxSalary !== null) {
-            $query->where(function ($qb) {
+        if (isset($request['max_salary'])) {
+            $query->where(function ($qb) use ($request) {
                 $qb->whereNull('salary_max')
-                    ->orWhere('salary_max', '<=', $this->request->maxSalary);
+                    ->orWhere('salary_max', '<=', $request['max_salary']);
             });
         }
 
         // Ordering
         $query->orderBy('posted_at', 'desc')->orderBy('created_at', 'desc');
 
-        // Pagination
-        $paginator = $query->paginate($this->request->perPage, ['*'], 'page', $this->request->page);
+        // Pagination with defaults
+        $page = $request['page'] ?? 1;
+        $perPage = $request['per_page'] ?? 20;
+        $paginator = $query->paginate($perPage, ['*'], 'page', $page);
 
-        $jobs = [];
-        foreach ($paginator->items() as $job) {
-            $jobs[] = $this->formatJob($job);
-        }
-
-        $this->result = $this->buildResponse($jobs, $paginator);
-    }
-
-    public function result(): JobListResponse
-    {
-        if ($this->result === null) {
-            throw new \RuntimeException('Action not executed');
-        }
-        return $this->result;
-    }
-
-    private function buildResponse(array $jobs, $paginator): JobListResponse
-    {
-        return [
-            'data' => $jobs,
-            'meta' => [
-                'current_page' => $paginator->currentPage(),
-                'per_page' => $paginator->perPage(),
-                'total' => $paginator->total(),
-                'last_page' => $paginator->lastPage(),
-            ],
-        ];
-    }
-
-    private function formatJob(JobListing $job): JobResponse
-    {
-        return [
-            'id' => $job->id,
-            'title' => $job->title,
-            'company_name' => $job->company_name,
-            'company_logo' => $job->company_logo,
-            'location' => $job->location,
-            'remote' => $job->remote,
-            'job_type' => $job->job_type,
-            'salary' => $this->formatSalary($job),
-            'url' => $job->url,
-            'tags' => $job->tags ?? [],
-            'source' => $job->source,
-            'posted_at' => $job->posted_at?->toIso8601String(),
-        ];
-    }
-
-    private function formatSalary(JobListing $job): SalaryRange
-    {
-        $min = $job->salary_min;
-        $max = $job->salary_max;
-        $currency = $job->salary_currency ?? 'USD';
-
-        $formatted = 'Not specified';
-        if ($min !== null && $max !== null) {
-            $formatted = sprintf('%s %s - %s', $currency, number_format($min), number_format($max));
-        } elseif ($min !== null) {
-            $formatted = sprintf('%s %s+', $currency, number_format($min));
-        } elseif ($max !== null) {
-            $formatted = sprintf('Up to %s %s', $currency, number_format($max));
-        }
-
-        return [
-            'min' => $min,
-            'max' => $max,
-            'currency' => $min !== null || $max !== null ? $currency : null,
-            'formatted' => $formatted,
-        ];
+        // Convert to DTO
+        return JobList::fromPaginator($paginator);
     }
 }

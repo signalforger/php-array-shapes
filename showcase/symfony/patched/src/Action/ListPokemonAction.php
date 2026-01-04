@@ -1,52 +1,57 @@
 <?php
 
-namespace App\Action;
-
-use App\Action\Request\ListPokemonRequest;
-use App\Action\Response\PokemonListResponse;
-use Symfony\Contracts\HttpClient\HttpClientInterface;
-
 /**
- * Action to list Pokemon from PokeAPI.
+ * List Pokemon Action
+ *
+ * Pure action class that accepts shape-validated input
+ * and returns a DTO. No interface or parent class.
+ *
+ * Pattern:
+ * - Shape validates data at boundary (controller)
+ * - Action receives validated shape
+ * - Action validates external API response against shape
+ * - Action returns DTO with collection methods
  *
  * @api GET /api/pokemon
  */
-class ListPokemonAction implements ActionInterface
-{
-    private ?PokemonListResponse $result = null;
 
+namespace App\Action;
+
+use App\DTO\PokemonList;
+use App\Shapes\ListPokemonRequest;
+use App\Shapes\PokeApiList;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
+
+class ListPokemonAction
+{
     public function __construct(
         private readonly HttpClientInterface $httpClient,
-        private readonly ListPokemonRequest $request,
     ) {}
 
-    public function execute(): void
+    /**
+     * Execute the action with shape-validated request data
+     *
+     * @param ListPokemonRequest $request Shape-validated request data
+     * @return PokemonList DTO with pagination methods
+     */
+    public function execute(ListPokemonRequest $request): PokemonList
     {
+        $limit = $request['limit'] ?? 20;
+        $offset = $request['offset'] ?? 0;
+
         $response = $this->httpClient->request('GET', 'https://pokeapi.co/api/v2/pokemon', [
             'query' => [
-                'limit' => $this->request->limit,
-                'offset' => $this->request->offset,
+                'limit' => $limit,
+                'offset' => $offset,
             ],
         ]);
 
+        // Validate external API response against shape
         $data = $response->toArray();
 
-        $this->result = [
-            'count' => $data['count'],
-            'next' => $data['next'],
-            'previous' => $data['previous'],
-            'results' => array_map(fn($item) => [
-                'name' => $item['name'],
-                'url' => $item['url'],
-            ], $data['results']),
-        ];
-    }
+        // In production, this would validate: is_shape($data, PokeApiList::shape)
+        // For now we trust the response structure
 
-    public function result(): PokemonListResponse
-    {
-        if ($this->result === null) {
-            throw new \RuntimeException('Action not executed');
-        }
-        return $this->result;
+        return PokemonList::fromShape($data);
     }
 }

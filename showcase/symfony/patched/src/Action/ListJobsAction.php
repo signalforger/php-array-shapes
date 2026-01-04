@@ -1,68 +1,81 @@
 <?php
 
-namespace App\Action;
-
-use App\Action\Request\ListJobsRequest;
-use App\Action\Response\JobListResponse;
-use App\Action\Response\JobResponse;
-use App\Action\Response\SalaryRange;
-use App\Action\Response\PaginationMeta;
-use App\Entity\JobListing;
-use App\Repository\JobListingRepository;
-use Doctrine\ORM\Tools\Pagination\Paginator;
-
 /**
- * Action to list jobs with filtering and pagination.
+ * List Jobs Action
+ *
+ * Pure action class that accepts shape-validated input
+ * and returns a DTO. No interface or parent class.
+ *
+ * Pattern:
+ * - Shape validates data at boundary (controller)
+ * - Action receives validated shape
+ * - Action returns DTO with business logic methods
  *
  * @api GET /api/jobs
  */
-class ListJobsAction implements ActionInterface
-{
-    private ?JobListResponse $result = null;
 
+namespace App\Action;
+
+use App\DTO\Job;
+use App\DTO\JobList;
+use App\Entity\JobListing;
+use App\Repository\JobListingRepository;
+use App\Shapes\ListJobsRequest;
+use Doctrine\ORM\Tools\Pagination\Paginator;
+
+class ListJobsAction
+{
     public function __construct(
         private readonly JobListingRepository $repository,
-        private readonly ListJobsRequest $request,
     ) {}
 
-    public function execute(): void
+    /**
+     * Execute the action with shape-validated request data
+     *
+     * @param ListJobsRequest $request Shape-validated request data
+     * @return JobList DTO with collection methods
+     */
+    public function execute(ListJobsRequest $request): JobList
     {
+        $page = $request['page'] ?? 1;
+        $perPage = $request['per_page'] ?? 20;
+
         $qb = $this->repository->createQueryBuilder('j');
 
-        // Apply filters
-        if ($this->request->query !== null) {
+        // Apply filters from shape-validated input
+        if (isset($request['q'])) {
             $qb->andWhere('j.title LIKE :q OR j.companyName LIKE :q OR j.description LIKE :q')
-               ->setParameter('q', '%' . $this->request->query . '%');
+               ->setParameter('q', '%' . $request['q'] . '%');
         }
 
-        if ($this->request->remote !== null) {
+        if (isset($request['remote'])) {
             $qb->andWhere('j.remote = :remote')
-               ->setParameter('remote', $this->request->remote);
+               ->setParameter('remote', $request['remote']);
         }
 
-        if ($this->request->jobType !== null) {
+        if (isset($request['job_type'])) {
             $qb->andWhere('j.jobType = :jobType')
-               ->setParameter('jobType', $this->request->jobType);
+               ->setParameter('jobType', $request['job_type']);
         }
 
-        if ($this->request->location !== null) {
+        if (isset($request['location'])) {
             $qb->andWhere('j.location LIKE :location')
-               ->setParameter('location', '%' . $this->request->location . '%');
+               ->setParameter('location', '%' . $request['location'] . '%');
         }
 
-        if ($this->request->source !== null) {
+        if (isset($request['source'])) {
             $qb->andWhere('j.source = :source')
-               ->setParameter('source', $this->request->source);
+               ->setParameter('source', $request['source']);
         }
 
-        if ($this->request->minSalary !== null) {
+        if (isset($request['min_salary'])) {
             $qb->andWhere('j.salaryMin IS NULL OR j.salaryMin >= :minSalary')
-               ->setParameter('minSalary', $this->request->minSalary);
+               ->setParameter('minSalary', $request['min_salary']);
         }
 
-        if ($this->request->maxSalary !== null) {
+        if (isset($request['max_salary'])) {
             $qb->andWhere('j.salaryMax IS NULL OR j.salaryMax <= :maxSalary')
-               ->setParameter('maxSalary', $this->request->maxSalary);
+               ->setParameter('maxSalary', $request['max_salary']);
         }
 
         // Ordering
@@ -70,80 +83,25 @@ class ListJobsAction implements ActionInterface
            ->addOrderBy('j.createdAt', 'DESC');
 
         // Pagination
-        $qb->setFirstResult(($this->request->page - 1) * $this->request->perPage)
-           ->setMaxResults($this->request->perPage);
+        $qb->setFirstResult(($page - 1) * $perPage)
+           ->setMaxResults($perPage);
 
         $paginator = new Paginator($qb);
         $total = count($paginator);
-        $lastPage = (int) ceil($total / $this->request->perPage);
+        $lastPage = (int) ceil($total / $perPage);
 
+        // Convert entities to DTOs
         $jobs = [];
         foreach ($paginator as $job) {
-            $jobs[] = $this->formatJob($job);
+            $jobs[] = Job::fromEntity($job);
         }
 
-        $this->result = $this->buildResponse($jobs, $total, $lastPage);
-    }
-
-    public function result(): JobListResponse
-    {
-        if ($this->result === null) {
-            throw new \RuntimeException('Action not executed');
-        }
-        return $this->result;
-    }
-
-    private function buildResponse(array $jobs, int $total, int $lastPage): JobListResponse
-    {
-        return [
-            'data' => $jobs,
-            'meta' => [
-                'current_page' => $this->request->page,
-                'per_page' => $this->request->perPage,
-                'total' => $total,
-                'last_page' => $lastPage,
-            ],
-        ];
-    }
-
-    private function formatJob(JobListing $job): JobResponse
-    {
-        return [
-            'id' => $job->getId(),
-            'title' => $job->getTitle(),
-            'company_name' => $job->getCompanyName(),
-            'company_logo' => $job->getCompanyLogo(),
-            'location' => $job->getLocation(),
-            'remote' => $job->isRemote(),
-            'job_type' => $job->getJobType(),
-            'salary' => $this->formatSalary($job),
-            'url' => $job->getUrl(),
-            'tags' => $job->getTags() ?? [],
-            'source' => $job->getSource(),
-            'posted_at' => $job->getPostedAt()?->format(\DateTimeInterface::ISO8601),
-        ];
-    }
-
-    private function formatSalary(JobListing $job): SalaryRange
-    {
-        $min = $job->getSalaryMin();
-        $max = $job->getSalaryMax();
-        $currency = $job->getSalaryCurrency() ?? 'USD';
-
-        $formatted = 'Not specified';
-        if ($min !== null && $max !== null) {
-            $formatted = sprintf('%s %s - %s', $currency, number_format($min), number_format($max));
-        } elseif ($min !== null) {
-            $formatted = sprintf('%s %s+', $currency, number_format($min));
-        } elseif ($max !== null) {
-            $formatted = sprintf('Up to %s %s', $currency, number_format($max));
-        }
-
-        return [
-            'min' => $min,
-            'max' => $max,
-            'currency' => $min !== null || $max !== null ? $currency : null,
-            'formatted' => $formatted,
-        ];
+        return new JobList(
+            jobs: $jobs,
+            currentPage: $page,
+            perPage: $perPage,
+            total: $total,
+            lastPage: $lastPage,
+        );
     }
 }

@@ -1,109 +1,44 @@
 <?php
 
+/**
+ * GetPokemonAction - Fetch a Pokemon from PokeAPI
+ *
+ * Demonstrates the boundary pattern with external APIs:
+ * - Input: Shape-validated request (GetPokemonRequest shape)
+ * - External API: Response validated against PokeApiPokemon shape
+ * - Output: Pokemon DTO with game mechanics methods
+ */
+
 namespace App\Action;
 
-use App\Action\Request\GetPokemonRequest;
-use App\Action\Response\PokemonResponse;
-use App\Action\Response\PokemonStat;
-use App\Action\Response\PokemonType;
-use App\Action\Response\PokemonAbility;
-use App\Action\Response\PokemonSprites;
+use App\DTO\Pokemon;
+use App\Shapes\GetPokemonRequest;
+use App\Shapes\PokeApiPokemon;
 use Illuminate\Support\Facades\Http;
 
-/**
- * Action to get a single Pokemon from PokeAPI.
- *
- * @api GET /api/pokemon/{nameOrId}
- */
-class GetPokemonAction implements ActionInterface
+class GetPokemonAction
 {
-    private ?PokemonResponse $result = null;
-    private bool $notFound = false;
-
-    public function __construct(
-        private readonly GetPokemonRequest $request,
-    ) {}
-
-    public function execute(): void
+    /**
+     * Execute the action
+     *
+     * @param GetPokemonRequest $request Shape-validated request
+     * @return Pokemon|null DTO or null if not found
+     */
+    public function execute(GetPokemonRequest $request): ?Pokemon
     {
-        $response = Http::get('https://pokeapi.co/api/v2/pokemon/' . strtolower($this->request->nameOrId));
+        $nameOrId = strtolower((string) $request['name_or_id']);
+
+        $response = Http::get("https://pokeapi.co/api/v2/pokemon/{$nameOrId}");
 
         if ($response->status() === 404) {
-            $this->notFound = true;
-            return;
+            return null;
         }
 
+        // The API response is validated against PokeApiPokemon shape
+        /** @var PokeApiPokemon $data */
         $data = $response->json();
 
-        $this->result = [
-            'id' => $data['id'],
-            'name' => $data['name'],
-            'height' => $data['height'],
-            'weight' => $data['weight'],
-            'base_experience' => $data['base_experience'],
-            'types' => $this->formatTypes($data['types']),
-            'stats' => $this->formatStats($data['stats']),
-            'abilities' => $this->formatAbilities($data['abilities']),
-            'sprites' => $this->formatSprites($data['sprites']),
-        ];
-    }
-
-    public function result(): PokemonResponse
-    {
-        if ($this->result === null) {
-            throw new \RuntimeException('Pokemon not found or action not executed');
-        }
-        return $this->result;
-    }
-
-    public function isNotFound(): bool
-    {
-        return $this->notFound;
-    }
-
-    /**
-     * @return array<PokemonType>
-     */
-    private function formatTypes(array $types): array
-    {
-        return array_map(fn($t): PokemonType => [
-            'slot' => $t['slot'],
-            'name' => $t['type']['name'],
-        ], $types);
-    }
-
-    /**
-     * @return array<PokemonStat>
-     */
-    private function formatStats(array $stats): array
-    {
-        return array_map(fn($s): PokemonStat => [
-            'name' => $s['stat']['name'],
-            'base_stat' => $s['base_stat'],
-            'effort' => $s['effort'],
-        ], $stats);
-    }
-
-    /**
-     * @return array<PokemonAbility>
-     */
-    private function formatAbilities(array $abilities): array
-    {
-        return array_map(fn($a): PokemonAbility => [
-            'name' => $a['ability']['name'],
-            'is_hidden' => $a['is_hidden'],
-            'slot' => $a['slot'],
-        ], $abilities);
-    }
-
-    private function formatSprites(array $sprites): PokemonSprites
-    {
-        return [
-            'front_default' => $sprites['front_default'],
-            'front_shiny' => $sprites['front_shiny'],
-            'back_default' => $sprites['back_default'],
-            'back_shiny' => $sprites['back_shiny'],
-            'official_artwork' => $sprites['other']['official-artwork']['front_default'] ?? null,
-        ];
+        // Convert shape-validated data to DTO
+        return Pokemon::fromShape($data);
     }
 }

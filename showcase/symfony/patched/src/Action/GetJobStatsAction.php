@@ -1,42 +1,47 @@
 <?php
 
-namespace App\Action;
-
-use App\Action\Response\JobStatsResponse;
-use App\Repository\JobListingRepository;
-
 /**
- * Action to get job statistics.
+ * Get Job Stats Action
+ *
+ * Pure action class that returns a DTO.
+ * No interface or parent class.
+ *
+ * Pattern:
+ * - No input shape needed (no parameters)
+ * - Action returns DTO with analytics methods
  *
  * @api GET /api/jobs/stats
  */
-class GetJobStatsAction implements ActionInterface
-{
-    private ?JobStatsResponse $result = null;
 
+namespace App\Action;
+
+use App\DTO\JobStats;
+use App\Repository\JobListingRepository;
+
+class GetJobStatsAction
+{
     public function __construct(
         private readonly JobListingRepository $repository,
     ) {}
 
-    public function execute(): void
+    /**
+     * Execute the action
+     *
+     * @return JobStats DTO with analytics methods
+     */
+    public function execute(): JobStats
     {
         $stats = $this->repository->getStats();
 
-        $this->result = [
-            'total_jobs' => $stats['total_jobs'] ?? 0,
-            'by_source' => $stats['by_source'] ?? [],
-            'by_type' => $stats['by_type'] ?? [],
-            'remote_jobs' => $stats['remote_jobs'] ?? 0,
-            'with_salary' => $stats['with_salary'] ?? 0,
-            'last_fetched_at' => $stats['last_fetched_at'] ?? null,
-        ];
-    }
-
-    public function result(): JobStatsResponse
-    {
-        if ($this->result === null) {
-            throw new \RuntimeException('Action not executed');
-        }
-        return $this->result;
+        return new JobStats(
+            totalJobs: $stats['total_jobs'] ?? 0,
+            remoteJobs: $stats['remote_jobs'] ?? 0,
+            jobsWithSalary: $stats['with_salary'] ?? 0,
+            jobsBySource: $stats['by_source'] ?? [],
+            jobsByType: $stats['by_type'] ?? [],
+            lastUpdated: $stats['last_fetched_at']
+                ? new \DateTimeImmutable($stats['last_fetched_at'])
+                : new \DateTimeImmutable(),
+        );
     }
 }

@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Job Aggregator{% endblock %}</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 128 128%22><text y=%221.2em%22 font-size=%2296%22>💼</text></svg>">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <!-- Navigation -->
+    <nav class="bg-white shadow-sm border-b">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between h-16">
+                <div class="flex items-center">
+                    <a href="{{ path('home') }}" class="flex items-center space-x-2">
+                        <svg class="w-8 h-8 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                        </svg>
+                        <span class="text-xl font-bold text-gray-900">JobBoard</span>
+                    </a>
+                    <div class="hidden sm:ml-8 sm:flex sm:space-x-4">
+                        <a href="{{ path('home') }}" class="px-3 py-2 text-sm font-medium text-indigo-600">
+                            Jobs
+                        </a>
+                        <a href="{{ path('api_docs') }}" class="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900">
+                            API Docs
+                        </a>
+                        <a href="{{ path('about') }}" class="px-3 py-2 text-sm font-medium text-gray-600 hover:text-gray-900">
+                            About
+                        </a>
+                    </div>
+                </div>
+                <div class="flex items-center">
+                    <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+                        Symfony + PHP {{ constant('PHP_VERSION') }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main>
+        {% block body %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-white border-t mt-12">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            <p class="text-center text-gray-500 text-sm">
+                Job Board Aggregator - Powered by Symfony and PHP 8.5.1
+            </p>
+        </div>
+    </footer>
+</body>
+</html>

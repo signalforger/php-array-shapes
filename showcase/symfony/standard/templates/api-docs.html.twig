@@ -1,0 +1,96 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}API Documentation - Job Aggregator{% endblock %}
+
+{% block body %}
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <h1 class="text-3xl font-bold text-gray-900 mb-8">API Documentation</h1>
+
+    <div class="bg-white rounded-lg shadow-lg overflow-hidden">
+        <!-- Endpoints -->
+        <div class="divide-y">
+            <!-- List Jobs -->
+            <div class="p-6">
+                <div class="flex items-center space-x-3 mb-4">
+                    <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded">GET</span>
+                    <code class="text-lg font-mono">/api/jobs</code>
+                </div>
+                <p class="text-gray-600 mb-4">List jobs with optional filters and pagination.</p>
+                <h4 class="font-medium text-gray-900 mb-2">Query Parameters:</h4>
+                <ul class="text-sm text-gray-600 space-y-1 mb-4">
+                    <li><code class="bg-gray-100 px-1 rounded">q</code> - Search query (title, company, description)</li>
+                    <li><code class="bg-gray-100 px-1 rounded">remote</code> - Filter remote jobs (true/false)</li>
+                    <li><code class="bg-gray-100 px-1 rounded">job_type</code> - Job type (full-time, part-time, contract)</li>
+                    <li><code class="bg-gray-100 px-1 rounded">location</code> - Location filter</li>
+                    <li><code class="bg-gray-100 px-1 rounded">source</code> - Provider source (remotive, arbeitnow)</li>
+                    <li><code class="bg-gray-100 px-1 rounded">page</code> - Page number (default: 1)</li>
+                    <li><code class="bg-gray-100 px-1 rounded">per_page</code> - Items per page (max: 100, default: 20)</li>
+                </ul>
+                <h4 class="font-medium text-gray-900 mb-2">Response:</h4>
+                <pre class="bg-gray-900 text-green-400 p-4 rounded-lg text-sm overflow-x-auto"><code>{
+  "data": [
+    {
+      "id": 1,
+      "title": "Senior PHP Developer",
+      "company_name": "Acme Corp",
+      "company_logo": "https://...",
+      "location": "Remote",
+      "remote": true,
+      "job_type": "full-time",
+      "salary": {"min": 80000, "max": 120000, "currency": "USD", "formatted": "USD 80,000 - 120,000"},
+      "url": "https://...",
+      "tags": ["php", "symfony"],
+      "source": "remotive",
+      "posted_at": "2026-01-01T00:00:00+00:00"
+    }
+  ],
+  "meta": {
+    "current_page": 1,
+    "per_page": 20,
+    "total": 100,
+    "last_page": 5
+  }
+}</code></pre>
+            </div>
+
+            <!-- Get Job -->
+            <div class="p-6">
+                <div class="flex items-center space-x-3 mb-4">
+                    <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded">GET</span>
+                    <code class="text-lg font-mono">/api/jobs/{id}</code>
+                </div>
+                <p class="text-gray-600 mb-4">Get a single job listing with full details.</p>
+                <h4 class="font-medium text-gray-900 mb-2">Response:</h4>
+                <pre class="bg-gray-900 text-green-400 p-4 rounded-lg text-sm overflow-x-auto"><code>{
+  "data": {
+    "id": 1,
+    "title": "Senior PHP Developer",
+    "description": "Full HTML description...",
+    ...
+  }
+}</code></pre>
+            </div>
+
+            <!-- Stats -->
+            <div class="p-6">
+                <div class="flex items-center space-x-3 mb-4">
+                    <span class="px-2 py-1 bg-green-100 text-green-700 text-xs font-bold rounded">GET</span>
+                    <code class="text-lg font-mono">/api/jobs/stats</code>
+                </div>
+                <p class="text-gray-600 mb-4">Get job statistics.</p>
+                <h4 class="font-medium text-gray-900 mb-2">Response:</h4>
+                <pre class="bg-gray-900 text-green-400 p-4 rounded-lg text-sm overflow-x-auto"><code>{
+  "data": {
+    "total_jobs": 150,
+    "by_source": {"remotive": 100, "arbeitnow": 50},
+    "by_type": {"full-time": 120, "contract": 30},
+    "remote_jobs": 140,
+    "with_salary": 80,
+    "last_fetched_at": "2026-01-01 12:00:00"
+  }
+}</code></pre>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,140 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}Find Your Next Job - Job Aggregator{% endblock %}
+
+{% block body %}
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <!-- Stats Banner -->
+    <div class="bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg shadow-lg p-6 mb-8 text-white">
+        <h1 class="text-2xl font-bold mb-4">Find Your Next Remote Job</h1>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+                <div class="text-3xl font-bold">{{ stats.total_jobs }}</div>
+                <div class="text-indigo-200">Total Jobs</div>
+            </div>
+            <div>
+                <div class="text-3xl font-bold">{{ stats.remote_jobs }}</div>
+                <div class="text-indigo-200">Remote</div>
+            </div>
+            <div>
+                <div class="text-3xl font-bold">{{ stats.with_salary }}</div>
+                <div class="text-indigo-200">With Salary</div>
+            </div>
+            <div>
+                <div class="text-3xl font-bold">{{ stats.by_source|length }}</div>
+                <div class="text-indigo-200">Sources</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Search and Filters -->
+    <form method="GET" class="bg-white rounded-lg shadow p-4 mb-6">
+        <div class="flex flex-wrap gap-4">
+            <div class="flex-1 min-w-64">
+                <input type="text"
+                       name="q"
+                       value="{{ filters.q }}"
+                       placeholder="Search jobs..."
+                       class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
+            </div>
+            <div>
+                <select name="job_type" class="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500">
+                    <option value="">All Types</option>
+                    <option value="full-time" {{ filters.job_type == 'full-time' ? 'selected' : '' }}>Full-time</option>
+                    <option value="part-time" {{ filters.job_type == 'part-time' ? 'selected' : '' }}>Part-time</option>
+                    <option value="contract" {{ filters.job_type == 'contract' ? 'selected' : '' }}>Contract</option>
+                </select>
+            </div>
+            <div class="flex items-center">
+                <label class="flex items-center cursor-pointer">
+                    <input type="checkbox"
+                           name="remote"
+                           value="1"
+                           {{ filters.remote ? 'checked' : '' }}
+                           class="h-4 w-4 text-indigo-600 border-gray-300 rounded">
+                    <span class="ml-2 text-gray-700">Remote only</span>
+                </label>
+            </div>
+            <button type="submit" class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+                Search
+            </button>
+        </div>
+    </form>
+
+    <!-- Job Listings -->
+    <div class="space-y-4">
+        {% for job in jobs %}
+        <div class="bg-white rounded-lg shadow hover:shadow-md transition p-6">
+            <div class="flex items-start justify-between">
+                <div class="flex items-start space-x-4">
+                    {% if job.companyLogo %}
+                    <img src="{{ job.companyLogo }}"
+                         alt="{{ job.companyName }}"
+                         class="w-12 h-12 rounded-lg object-cover">
+                    {% else %}
+                    <div class="w-12 h-12 rounded-lg bg-gray-200 flex items-center justify-center">
+                        <span class="text-gray-500 text-lg font-bold">{{ job.companyName|slice(0, 1)|upper }}</span>
+                    </div>
+                    {% endif %}
+                    <div>
+                        <a href="{{ path('job_show', {id: job.id}) }}" class="text-lg font-semibold text-gray-900 hover:text-indigo-600">
+                            {{ job.title }}
+                        </a>
+                        <p class="text-gray-600">{{ job.companyName }}</p>
+                        <div class="flex flex-wrap gap-2 mt-2">
+                            <span class="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">{{ job.location }}</span>
+                            {% if job.remote %}
+                            <span class="px-2 py-1 bg-green-100 text-green-700 text-xs rounded">Remote</span>
+                            {% endif %}
+                            <span class="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded">{{ job.jobType }}</span>
+                            <span class="px-2 py-1 bg-purple-100 text-purple-700 text-xs rounded">{{ job.source }}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="text-right">
+                    <div class="text-sm font-medium text-gray-900">{{ job.salaryRange.formatted }}</div>
+                    {% if job.postedAt %}
+                    <div class="text-xs text-gray-500">{{ job.postedAt|date('M d, Y') }}</div>
+                    {% endif %}
+                </div>
+            </div>
+            {% if job.tags and job.tags|length > 0 %}
+            <div class="mt-4 flex flex-wrap gap-1">
+                {% for tag in job.tags|slice(0, 5) %}
+                <span class="px-2 py-0.5 bg-indigo-50 text-indigo-700 text-xs rounded">{{ tag }}</span>
+                {% endfor %}
+                {% if job.tags|length > 5 %}
+                <span class="text-xs text-gray-500">+{{ job.tags|length - 5 }} more</span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="bg-white rounded-lg shadow p-8 text-center">
+            <p class="text-gray-500">No jobs found matching your criteria.</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if pagination.pages > 1 %}
+    <div class="mt-8 flex justify-center space-x-2">
+        {% if pagination.page > 1 %}
+        <a href="?page={{ pagination.page - 1 }}&q={{ filters.q }}&job_type={{ filters.job_type }}&remote={{ filters.remote }}"
+           class="px-4 py-2 bg-white border rounded-lg hover:bg-gray-50">
+            Previous
+        </a>
+        {% endif %}
+        <span class="px-4 py-2 text-gray-600">
+            Page {{ pagination.page }} of {{ pagination.pages }}
+        </span>
+        {% if pagination.page < pagination.pages %}
+        <a href="?page={{ pagination.page + 1 }}&q={{ filters.q }}&job_type={{ filters.job_type }}&remote={{ filters.remote }}"
+           class="px-4 py-2 bg-white border rounded-lg hover:bg-gray-50">
+            Next
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

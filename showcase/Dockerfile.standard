@@ -127,8 +127,8 @@ RUN mkdir -p /var/run/php /var/log/php /app/public
 RUN cp /usr/local/php/etc/php-fpm.conf.default /usr/local/php/etc/php-fpm.conf \
     && cp /usr/local/php/etc/php-fpm.d/www.conf.default /usr/local/php/etc/php-fpm.d/www.conf \
     && sed -i 's|listen = 127.0.0.1:9000|listen = /var/run/php/php-fpm.sock|' /usr/local/php/etc/php-fpm.d/www.conf \
-    && sed -i 's|;listen.owner = www-data|listen.owner = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
-    && sed -i 's|;listen.group = www-data|listen.group = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|;listen.owner = nobody|listen.owner = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|;listen.group = nobody|listen.group = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
     && sed -i 's|;listen.mode = 0660|listen.mode = 0660|' /usr/local/php/etc/php-fpm.d/www.conf \
     && sed -i 's|user = nobody|user = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
     && sed -i 's|group = nobody|group = www-data|' /usr/local/php/etc/php-fpm.d/www.conf

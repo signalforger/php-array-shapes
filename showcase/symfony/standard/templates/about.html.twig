@@ -1,0 +1,68 @@
+{% extends 'base.html.twig' %}
+
+{% block title %}About - Job Aggregator{% endblock %}
+
+{% block body %}
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <h1 class="text-3xl font-bold text-gray-900 mb-8">About This Project</h1>
+
+    <div class="bg-white rounded-lg shadow-lg p-6 space-y-6">
+        <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-3">PHP 8.5 Array Shapes Showcase</h2>
+            <p class="text-gray-600">
+                This job board aggregator demonstrates the power of PHP 8.5's new typed arrays and array shapes feature.
+                The application fetches job listings from multiple external APIs, normalizes the data, and presents it
+                through both a web interface and a REST API.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-3">Architecture</h2>
+            <ul class="text-gray-600 space-y-2">
+                <li><strong>Framework:</strong> Symfony 7.x</li>
+                <li><strong>PHP Version:</strong> {{ constant('PHP_VERSION') }}</li>
+                <li><strong>Database:</strong> PostgreSQL</li>
+                <li><strong>External APIs:</strong> Remotive, Arbeitnow, JSearch</li>
+            </ul>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-3">Standard PHP Version</h2>
+            <p class="text-gray-600">
+                This is the <strong>standard PHP version</strong> of the application. It uses traditional PHP types
+                and PHPDoc annotations to document array structures. Compare this with the patched version that uses
+                native typed arrays and array shapes.
+            </p>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-3">Key Differences</h2>
+            <div class="bg-gray-50 rounded-lg p-4">
+                <h4 class="font-medium text-gray-900 mb-2">Standard PHP (this version):</h4>
+                <pre class="text-sm text-gray-700"><code>/**
+ * @return array{id: int, name: string, email: string}
+ */
+public function getUser(): array {
+    return ['id' => 1, 'name' => 'John', 'email' => 'john@example.com'];
+}</code></pre>
+
+                <h4 class="font-medium text-gray-900 mt-4 mb-2">Patched PHP (with array shapes):</h4>
+                <pre class="text-sm text-gray-700"><code>public function getUser(): array{id: int, name: string, email: string} {
+    return ['id' => 1, 'name' => 'John', 'email' => 'john@example.com'];
+}</code></pre>
+            </div>
+        </section>
+
+        <section>
+            <h2 class="text-xl font-semibold text-gray-900 mb-3">Links</h2>
+            <ul class="text-gray-600 space-y-2">
+                <li>
+                    <a href="https://github.com/signalforger/php-array-shapes" class="text-indigo-600 hover:text-indigo-800">
+                        PHP Array Shapes RFC &rarr;
+                    </a>
+                </li>
+            </ul>
+        </section>
+    </div>
+</div>
+{% endblock %}

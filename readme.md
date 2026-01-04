@@ -47,7 +47,7 @@
   - [Recursion Depth Limit](#recursion-depth-limit)
   - [Cache Invalidation](#cache-invalidation)
 - [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
-- [Why Not Full Generics?](#why-not-full-generics)
+- [Why Not Generics?](#why-not-generics)
 - [Backward Compatibility](#backward-compatibility)
 - [Future Scope](#future-scope)
 - [Source Code](#source-code)
@@ -965,68 +965,43 @@ Tools like PHPStan and Psalm already support array shapes via docblocks. Why add
 
 **Native types and static analysis are complementary** - static analysis catches bugs before runtime, native types catch bugs that slip through (especially from external data sources).
 
-## Why Not Full Generics?
+## Why Not Generics?
 
-A common question: "Why not just implement generics like Java/C#/TypeScript?"
+A common question is why this RFC proposes typed arrays instead of full generics. The answer lies in PHP's specific characteristics and what developers actually need.
 
-### The 90% Solution
+### Implementation Approaches
 
-Looking at how generics are actually used in other languages, the overwhelming majority of cases fall into two categories:
+Every language that implements generics must choose an approach, each with trade offs:
 
-1. **Typed collections**: `List<User>`, `Map<string, int>`, `Set<Product>`
-2. **Structured data**: `Result<T>`, `Response<Data>`, `Pair<A, B>`
+| Approach | Languages | Trade off |
+|----------|-----------|-----------|
+| **Type Erasure** | Java, TypeScript, Python | Types checked at compile time only; no runtime validation |
+| **Reification** | C# | Full runtime types; requires deep VM integration |
+| **Monomorphization** | Rust, C++ | Specialized code per type; increases compile time and binary size |
 
-Typed arrays (`array<User>`) and array shapes (`array{success: bool, data: mixed}`) solve both of these directly, covering 90%+ of real-world generic use cases.
+For PHP, type erasure would duplicate what static analyzers (PHPStan, Psalm) already provide. Reification would require significant engine changes (C#'s implementation took Microsoft Research six years). Monomorphization is designed for ahead of time compilation, not interpreted execution.
 
-### What's Left?
+### PHP's Context
 
-The remaining cases where full generics would help:
+PHP differs from languages where generics originated:
 
-```php
-// Generic class - but PHP already has a solution
-class Box<T> {
-    public function __construct(private T $value) {}
-    public function get(): T { return $this->value; }
-}
+1. **Arrays are the universal container**: Unlike Java (fixed size arrays) or C# (separate collection types), PHP arrays are dynamic, associative, and used everywhere
+2. **Runtime type enforcement**: PHP validates types during execution, making compile time only checking less valuable
+3. **Request response model**: Each request starts fresh, reducing the need for complex type hierarchies
 
-// In PHP, you just use mixed + runtime checks or separate classes
-class Box {
-    public function __construct(private mixed $value) {}
-    public function get(): mixed { return $this->value; }
-}
+### What This RFC Provides
 
-// Or for type safety, create specific classes
-class UserBox {
-    public function __construct(private User $value) {}
-    public function get(): User { return $this->value; }
-}
-```
+Rather than introducing a general purpose generics system, typed arrays address specific needs directly:
 
-For the rare cases where you truly need generic containers, PHP's approach of using `mixed` with runtime validation or creating specific typed classes works well.
+| Need | Typed Arrays Solution |
+|------|----------------------|
+| Type safe collections | `array<User>` |
+| Structured data | `array{id: int, name: string}` |
+| Runtime validation | Built in enforcement |
+| IDE support | Native type declarations |
+| External data validation | Shape validation at boundaries |
 
-### Complexity vs. Value
-
-Full generics would require:
-
-- **Type erasure or reification** - Major engine changes
-- **Variance rules** - Complex covariance/contravariance for classes
-- **Generic constraints** - `where T extends Serializable`
-- **Type inference** - Inferring `T` from usage context
-- **Backward compatibility** - Existing code must keep working
-
-This is years of implementation work for diminishing returns. Typed arrays and array shapes deliver the practical benefits now, with a fraction of the complexity.
-
-### PHP's Pragmatic Approach
-
-| Need | Generics Solution | PHP Solution |
-|------|-------------------|--------------|
-| List of users | `List<User>` | `array<User>` |
-| String-keyed map | `Map<string, int>` | `array<string, int>` |
-| API response | `Response<T>` | `array{success: bool, data: mixed}` |
-| Database row | `Row<T>` | `array{id: int, name: string}` |
-| Generic container | `Box<T>` | Class with `mixed` or specific typed class |
-
-**Typed arrays and array shapes aren't a compromise. They're a direct solution** to what developers actually need, without the complexity tax of full generics.
+Typed arrays and array shapes cover the majority of cases where developers reach for generic types in other languages, with native runtime validation that type erased generics cannot provide.
 
 ## Backward Compatibility
 
@@ -1043,7 +1018,6 @@ Potential future enhancements (not part of this RFC):
 
 1. **Readonly shapes**: Immutable array structures
 2. **Shape inheritance**: `shape Admin extends User`
-3. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
 
 ## Source Code
 

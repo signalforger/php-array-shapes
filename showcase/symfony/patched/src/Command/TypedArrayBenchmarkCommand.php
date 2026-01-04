@@ -82,6 +82,8 @@ class TypedArrayBenchmarkCommand extends Command
             'object' => [],
             'object_array_typed' => [],
             'object_array_passthrough' => [],
+            'wrapper_collection' => [],
+            'wrapper_passthrough' => [],
         ];
 
         // Pre-create objects for passthrough test (simulates ORM scenario)
@@ -97,8 +99,12 @@ class TypedArrayBenchmarkCommand extends Command
         }
         $io->text('Pre-created ' . count($preCreatedObjects) . ' User objects for passthrough test');
 
+        // Pre-create wrapper collection for passthrough test
+        $preCreatedCollection = new UserCollection($preCreatedObjects);
+        $io->text('Pre-created UserCollection wrapper for passthrough test');
+
         $io->section('Running benchmarks...');
-        $io->progressStart($iterations * 6);
+        $io->progressStart($iterations * 8);
 
         for ($i = 0; $i < $iterations; $i++) {
             // Benchmark 1: Plain arrays (no type checking) - BASELINE
@@ -137,6 +143,18 @@ class TypedArrayBenchmarkCommand extends Command
             $passthroughResult = $this->returnTypedUserArray($preCreatedObjects);
             $results['object_array_passthrough'][] = (hrtime(true) - $start) / 1e6;
             $io->progressAdvance();
+
+            // Benchmark 7: Wrapper collection class (create + wrap)
+            $start = hrtime(true);
+            $wrapperResult = $this->processWithWrapperCollection($sourceData);
+            $results['wrapper_collection'][] = (hrtime(true) - $start) / 1e6;
+            $io->progressAdvance();
+
+            // Benchmark 8: Wrapper collection passthrough (already wrapped)
+            $start = hrtime(true);
+            $wrapperPassthroughResult = $this->returnUserCollection($preCreatedCollection);
+            $results['wrapper_passthrough'][] = (hrtime(true) - $start) / 1e6;
+            $io->progressAdvance();
         }
 
         $io->progressFinish();
@@ -166,6 +184,8 @@ class TypedArrayBenchmarkCommand extends Command
             'object' => 'Objects (individual creation)',
             'object_array_typed' => 'Typed array (create + validate)',
             'object_array_passthrough' => 'Typed array (validate only)',
+            'wrapper_collection' => 'Wrapper class (create + wrap)',
+            'wrapper_passthrough' => 'Wrapper class (passthrough)',
         ];
 
         foreach ($averages as $key => $avg) {
@@ -343,6 +363,32 @@ class TypedArrayBenchmarkCommand extends Command
     {
         return $users;
     }
+
+    /**
+     * Wrapper collection - creates objects and wraps in collection class
+     */
+    private function processWithWrapperCollection(array $sourceData): UserCollection
+    {
+        $objects = [];
+        foreach ($sourceData as $item) {
+            $objects[] = new User(
+                $item['id'],
+                $item['name'],
+                $item['email'],
+                $item['age'],
+                $item['active'],
+            );
+        }
+        return new UserCollection($objects);
+    }
+
+    /**
+     * Returns UserCollection - wrapper class passthrough
+     */
+    private function returnUserCollection(UserCollection $collection): UserCollection
+    {
+        return $collection;
+    }
 }
 
 /**
@@ -357,4 +403,35 @@ class User
         public readonly int $age,
         public readonly bool $active,
     ) {}
+}
+
+/**
+ * Wrapper collection class - traditional approach to typed collections
+ * This is what developers often create to ensure type safety without native typed arrays
+ */
+class UserCollection
+{
+    /** @var array<User> */
+    private array $users;
+
+    public function __construct(array $users)
+    {
+        // Validate each element is a User
+        foreach ($users as $user) {
+            if (!$user instanceof User) {
+                throw new \InvalidArgumentException('Expected User instance');
+            }
+        }
+        $this->users = $users;
+    }
+
+    public function getUsers(): array
+    {
+        return $this->users;
+    }
+
+    public function count(): int
+    {
+        return count($this->users);
+    }
 }

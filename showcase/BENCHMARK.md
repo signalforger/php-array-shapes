@@ -158,11 +158,53 @@ A specific concern is the overhead of typed object arrays, especially for ORM re
 
 | Scenario | Time | Notes |
 |----------|------|-------|
-| Validate existing objects as `array<Entity>` | **0.26-0.28 ms** | ~5μs per 1,000 objects |
-| Create objects + validate | 10-12 ms | Object creation is the cost |
-| Nested shape validation | 23-26 ms | Recursive structure checks |
+| Validate existing objects as `array<Entity>` | **0.26-0.29 ms** | ~5μs per 1,000 objects |
+| Create objects + validate | 12-14 ms | Object creation is the cost |
+| Nested shape validation | 29-32 ms | Recursive structure checks |
 
 **Finding**: Validating pre-existing objects (like ORM results) has **negligible overhead** - less than 1ms for 50,000 objects.
+
+---
+
+## Typed Arrays vs Wrapper Collection Classes
+
+A common pattern in PHP is creating wrapper collection classes for type safety:
+
+```php
+// Traditional wrapper class approach
+class UserCollection
+{
+    /** @var array<User> */
+    private array $users;
+
+    public function __construct(array $users)
+    {
+        foreach ($users as $user) {
+            if (!$user instanceof User) {
+                throw new InvalidArgumentException('Expected User');
+            }
+        }
+        $this->users = $users;
+    }
+}
+
+// Native typed array approach
+function getUsers(): array<User>
+{
+    return $users;
+}
+```
+
+### Benchmark: 50,000 objects
+
+| Approach | Symfony | Laravel | Notes |
+|----------|---------|---------|-------|
+| Typed array (create + validate) | 12.46 ms (+14%) | 13.87 ms (+9%) | Native validation |
+| Wrapper class (create + wrap) | 14.23 ms (+31%) | 16.47 ms (+30%) | Object allocation overhead |
+| Typed array (validate only) | 0.26 ms | 0.29 ms | Pre-existing objects |
+| Wrapper class (passthrough) | 0.001 ms | 0.001 ms | Already validated |
+
+**Finding**: Native `array<ClassName>` has **~50% less overhead** than wrapper collection classes. The wrapper class adds object allocation on top of validation.
 
 ### ORM Integration Example
 
@@ -234,6 +276,7 @@ shape AddressShape = array{
 | ORM entity collections | DTOs + `array<Entity>` | Minimal validation overhead |
 | API responses | **Array shapes** | No object allocation |
 | Domain entities | DTOs | Behavior encapsulation |
+| Typed collections | **`array<T>`** | 50% less overhead than wrapper classes |
 | Mixed scenarios | **Combine both** | Use each where appropriate |
 
 ---
@@ -298,5 +341,6 @@ docker exec showcase-symfony-patched \
 1. **Simple structures**: All approaches have similar performance
 2. **Nested structures**: Array shapes are **1.6-2.7x faster** than DTOs
 3. **Typed object arrays**: Validation overhead is **negligible** (<1ms for 50k objects)
-4. **Array shapes and DTOs are complementary**: Use shapes for data, DTOs for behavior
-5. **JIT optimization**: Typed code can actually be faster than untyped code
+4. **Typed arrays vs wrapper classes**: Native `array<T>` has **~50% less overhead** than wrapper collection classes
+5. **Array shapes and DTOs are complementary**: Use shapes for data, DTOs for behavior
+6. **JIT optimization**: Typed code can actually be faster than untyped code

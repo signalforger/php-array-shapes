@@ -86,19 +86,19 @@ Processing 50,000 records through simple flat transformations.
 
 | Approach | Time | Overhead |
 |----------|------|----------|
-| No validation (plain array) | 12.52 ms | baseline |
-| DTO class (userland) | 12.52 ms | **-0.1%** |
-| Array shape (native) | 12.74 ms | **+1.7%** |
+| No validation (plain array) | 9.72 ms | baseline |
+| DTO class (userland) | 9.95 ms | **+2.3%** |
+| Array shape (native) | 9.30 ms | **-4.3%** |
 
 #### Laravel
 
 | Approach | Time | Overhead |
 |----------|------|----------|
-| No validation (plain array) | 8.41 ms | baseline |
-| DTO class (userland) | 10.15 ms | **+20.7%** |
-| Array shape (native) | 10.07 ms | **+19.8%** |
+| No validation (plain array) | 8.38 ms | baseline |
+| DTO class (userland) | 9.78 ms | **+16.6%** |
+| Array shape (native) | 10.25 ms | **+22.3%** |
 
-**Finding**: For simple structures, all approaches perform similarly. The overhead of type checking is minimal (~0-20%).
+**Finding**: For simple structures, all approaches perform similarly. Array shapes can even be faster than plain arrays due to JIT optimization.
 
 ---
 
@@ -110,19 +110,19 @@ Processing 50,000 records with nested objects/shapes.
 
 | Approach | Time | Overhead |
 |----------|------|----------|
-| No validation (plain array) | 16.11 ms | baseline |
-| DTO classes (userland) | 42.58 ms | **+164.4%** |
-| Array shapes (native) | 25.88 ms | **+60.7%** |
+| No validation (plain array) | 12.09 ms | baseline |
+| DTO classes (userland) | 35.26 ms | **+191.8%** |
+| Array shapes (native) | 20.13 ms | **+66.5%** |
 
 #### Laravel
 
 | Approach | Time | Overhead |
 |----------|------|----------|
-| No validation (plain array) | 12.91 ms | baseline |
-| DTO classes (userland) | 27.01 ms | **+109.3%** |
-| Array shapes (native) | 23.08 ms | **+78.8%** |
+| No validation (plain array) | 13.10 ms | baseline |
+| DTO classes (userland) | 26.75 ms | **+104.2%** |
+| Array shapes (native) | 22.25 ms | **+69.8%** |
 
-**Finding**: For nested structures, **array shapes are 1.6-2.7x faster than DTOs**. The overhead comes from object allocation, not type checking itself.
+**Finding**: For nested structures, **array shapes are 1.5-2.9x faster than DTOs**. The overhead comes from object allocation, not type checking itself.
 
 ---
 
@@ -134,19 +134,19 @@ Processing 50,000 records as typed collections (`array<Shape>` or array of objec
 
 | Approach | Time | Overhead |
 |----------|------|----------|
-| No validation (plain array) | 19.50 ms | baseline |
-| DTO objects (array of objects) | 12.60 ms | **-35.4%** |
-| Typed array (array<Shape>) | 11.58 ms | **-40.6%** |
+| No validation (plain array) | 15.97 ms | baseline |
+| DTO objects (array of objects) | 10.04 ms | **-37.1%** |
+| Typed array (array<Shape>) | 9.36 ms | **-41.4%** |
 
 #### Laravel
 
 | Approach | Time | Overhead |
 |----------|------|----------|
-| No validation (plain array) | 8.73 ms | baseline |
-| DTO objects (array of objects) | 11.10 ms | **+27.1%** |
-| Typed array (array<Shape>) | 10.09 ms | **+15.6%** |
+| No validation (plain array) | 8.76 ms | baseline |
+| DTO objects (array of objects) | 11.40 ms | **+30.2%** |
+| Typed array (array<Shape>) | 10.40 ms | **+18.7%** |
 
-**Finding**: Typed collections can actually be faster than plain arrays due to JIT optimization. Array shapes have lower overhead than DTO objects.
+**Finding**: Typed collections can be faster than plain arrays due to JIT optimization. Typed arrays consistently have lower overhead than DTO objects.
 
 ---
 

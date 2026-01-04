@@ -4,10 +4,12 @@
  *
  * This demo simulates a real-world Laravel application using:
  * - Shape type aliases for data structures
+ * - Shape inheritance (extends) for DRY code
  * - Typed arrays for collections (array<T>)
  * - Map types (array<K, V>)
  * - Closed shapes (array{...}!)
  * - Nested shapes
+ * - ::shape syntax for shape name references
  *
  * Run with: php demo.php
  */
@@ -19,43 +21,66 @@ echo "║  PHP Version: " . PHP_VERSION . str_repeat(' ', 52 - strlen(PHP_VERSIO
 echo "╚══════════════════════════════════════════════════════════════════╝\n\n";
 
 // ============================================================================
-// Shape Type Aliases (like TypeScript interfaces)
+// Base Shape Type Aliases
 // ============================================================================
 
-shape UserRecord = array{
+// Base user shape with common fields
+shape BaseUser = array{
     id: int,
     name: string,
-    email: string,
+    email: string
+};
+
+// Profile information (composable shape)
+shape UserProfile = array{
+    avatar_url: ?string,
+    bio: ?string,
+    location: ?string
+};
+
+// Pagination metadata (reusable)
+shape PaginationMeta = array{
+    current_page: int,
+    per_page: int,
+    total: int,
+    last_page: int
+};
+
+// ============================================================================
+// User Shapes with Inheritance
+// ============================================================================
+
+// User record from database - extends BaseUser with timestamps
+shape UserRecord extends BaseUser = array{
     created_at: string,
     is_active?: bool
 };
 
-shape UserWithProfile = array{
-    id: int,
-    name: string,
-    email: string,
-    profile: array{
-        avatar_url: ?string,
-        bio: ?string,
-        location: ?string
-    }
+// User with profile - extends BaseUser with profile data
+shape UserWithProfile extends BaseUser = array{
+    profile: UserProfile
 };
 
+// ============================================================================
+// API Response Shapes with Inheritance
+// ============================================================================
+
+// Base API response
 shape ApiResponse = array{
     success: bool,
     data: mixed,
-    message?: string,
+    message?: string
+};
+
+// Success response extends base with optional errors
+shape SuccessResponse extends ApiResponse = array{
     errors?: array<string>
 };
 
+// Paginated users response
 shape PaginatedUsers = array{
     data: array<UserRecord>,
-    meta: array{
-        current_page: int,
-        per_page: int,
-        total: int,
-        last_page: int
-    }
+    meta: PaginationMeta
 };
 
 // ============================================================================
@@ -167,7 +192,7 @@ class UserService
         return $this->repository->all();
     }
 
-    public function getUser(int $id): ApiResponse
+    public function getUser(int $id): SuccessResponse
     {
         $user = $this->repository->find($id);
 
@@ -245,7 +270,7 @@ class UserController
         $this->service = new UserService();
     }
 
-    public function index(): ApiResponse
+    public function index(): SuccessResponse
     {
         $users = $this->service->getAllUsers();
         return [
@@ -255,7 +280,7 @@ class UserController
         ];
     }
 
-    public function show(int $id): ApiResponse
+    public function show(int $id): SuccessResponse
     {
         return $this->service->getUser($id);
     }
@@ -270,7 +295,7 @@ class UserController
         return $this->service->getUserNames();
     }
 
-    public function search(string $query): ApiResponse
+    public function search(string $query): SuccessResponse
     {
         $results = $this->service->searchByName($query);
         return [
@@ -280,7 +305,7 @@ class UserController
         ];
     }
 
-    public function batch(array<int> $ids): ApiResponse
+    public function batch(array<int> $ids): SuccessResponse
     {
         $users = $this->service->getUsersByIds($ids);
         return [
@@ -307,16 +332,16 @@ echo "1. GET /api/users - List all users (array<UserRecord>)\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
 $response = $controller->index();
-echo "Response type: ApiResponse (array shape)\n";
+echo "Response type: SuccessResponse (extends ApiResponse)\n";
 echo "Users returned: " . count($response['data']) . "\n";
 echo json_encode($response, JSON_PRETTY_PRINT) . "\n\n";
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-echo "2. GET /api/users/1 - Get single user (UserRecord shape)\n";
+echo "2. GET /api/users/1 - Get single user (UserRecord extends BaseUser)\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
 $response = $controller->show(1);
-echo "Response type: ApiResponse with UserRecord data\n";
+echo "Response type: SuccessResponse with UserRecord data\n";
 echo json_encode($response, JSON_PRETTY_PRINT) . "\n\n";
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
@@ -348,7 +373,7 @@ echo "6. GET /api/users/search?q=alice - Filtered typed array\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
 $response = $controller->search('alice');
-echo "Return type: ApiResponse with array<UserRecord>\n";
+echo "Return type: SuccessResponse with array<UserRecord>\n";
 echo json_encode($response, JSON_PRETTY_PRINT) . "\n\n";
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
@@ -357,11 +382,23 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 
 $response = $controller->batch([1, 3]);
 echo "Parameter type: array<int>\n";
-echo "Return type: ApiResponse with array<UserRecord>\n";
+echo "Return type: SuccessResponse with array<UserRecord>\n";
 echo json_encode($response, JSON_PRETTY_PRINT) . "\n\n";
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-echo "8. Type Safety Demo - What happens with wrong types?\n";
+echo "8. Shape Inheritance Demo - Using ::shape syntax\n";
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+
+echo "Shape names using ::shape syntax:\n";
+echo "  BaseUser::shape = " . BaseUser::shape . "\n";
+echo "  UserRecord::shape = " . UserRecord::shape . " (extends BaseUser)\n";
+echo "  UserWithProfile::shape = " . UserWithProfile::shape . " (extends BaseUser)\n";
+echo "  ApiResponse::shape = " . ApiResponse::shape . "\n";
+echo "  SuccessResponse::shape = " . SuccessResponse::shape . " (extends ApiResponse)\n";
+echo "\n";
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
+echo "9. Type Safety Demo - What happens with wrong types?\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
 echo "Attempting to call batch() with invalid data (strings instead of ints)...\n";
@@ -400,16 +437,16 @@ try {
 echo "\n";
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-echo "9. Pagination Demo - Complex nested shapes\n";
+echo "10. Pagination Demo - Complex nested shapes\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
 $repo = new UserRepository();
 $paginated = $repo->paginate(1, 2);
-echo "Return type: PaginatedUsers (nested shape)\n";
+echo "Return type: PaginatedUsers (uses UserRecord which extends BaseUser)\n";
 echo json_encode($paginated, JSON_PRETTY_PRINT) . "\n\n";
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
-echo "10. Reflection API - Inspecting types at runtime\n";
+echo "11. Reflection API - Inspecting types at runtime\n";
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
 
 $ref = new ReflectionMethod(UserController::class, 'stats');

@@ -7,9 +7,17 @@
  * They are used for:
  * - Type checking at runtime
  * - API documentation generation via reflection
+ *
+ * Shape Inheritance:
+ * - JobDetailResponse extends JobResponse (adds description, fetched_at)
+ * - Uses ::shape syntax for referencing shape names
  */
 
 namespace App\Action\Response;
+
+// ============================================
+// Base Shapes
+// ============================================
 
 // Salary information
 shape SalaryRange = array{
@@ -18,6 +26,18 @@ shape SalaryRange = array{
     currency: ?string,
     formatted: string
 };
+
+// Pagination metadata (reusable across different list responses)
+shape PaginationMeta = array{
+    current_page: int,
+    per_page: int,
+    total: int,
+    last_page: int
+};
+
+// ============================================
+// Job Response Shapes (with inheritance)
+// ============================================
 
 // Basic job information for list views
 shape JobResponse = array{
@@ -35,30 +55,11 @@ shape JobResponse = array{
     posted_at: ?string
 };
 
-// Full job details including description
-shape JobDetailResponse = array{
-    id: int,
-    title: string,
-    company_name: string,
-    company_logo: ?string,
-    location: string,
-    remote: bool,
-    job_type: string,
-    salary: SalaryRange,
-    url: string,
-    tags: array<string>,
-    source: string,
-    posted_at: ?string,
+// Full job details - extends JobResponse with additional fields
+// At compile time, this flattens to include all JobResponse fields plus description and fetched_at
+shape JobDetailResponse extends JobResponse = array{
     description: string,
     fetched_at: ?string
-};
-
-// Pagination metadata
-shape PaginationMeta = array{
-    current_page: int,
-    per_page: int,
-    total: int,
-    last_page: int
 };
 
 // Paginated list of jobs
@@ -77,7 +78,11 @@ shape JobStatsResponse = array{
     last_fetched_at: ?string
 };
 
-// Error response
+// ============================================
+// Error/Status Responses
+// ============================================
+
+// Base error response
 shape ErrorResponse = array{
     error: string,
     code: int
@@ -116,7 +121,13 @@ shape PokemonSprites = array{
     official_artwork: ?string
 };
 
-// Single Pokemon response
+// Base Pokemon info (for list items)
+shape PokemonListItem = array{
+    name: string,
+    url: string
+};
+
+// Single Pokemon response - full details
 shape PokemonResponse = array{
     id: int,
     name: string,
@@ -127,12 +138,6 @@ shape PokemonResponse = array{
     stats: array<PokemonStat>,
     abilities: array<PokemonAbility>,
     sprites: PokemonSprites
-};
-
-// Pokemon list item (from paginated list)
-shape PokemonListItem = array{
-    name: string,
-    url: string
 };
 
 // Paginated Pokemon list response

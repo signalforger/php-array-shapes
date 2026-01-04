@@ -16,9 +16,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *
  * Creates entities in memory and processes arrays to measure performance.
  * Uses native PHP typed arrays and shape aliases for runtime validation.
+ *
+ * Shape Inheritance:
+ * - JobDetailResponseShape extends JobResponseShape (adds description)
+ * - Uses ::shape syntax for shape name references
  */
 
-// Define shape aliases for benchmarking
+// ============================================
+// Base Shapes
+// ============================================
+
+// Salary information (reusable component)
 shape SalaryShape = array{
     min: ?int,
     max: ?int,
@@ -26,6 +34,19 @@ shape SalaryShape = array{
     formatted: string
 };
 
+// Pagination metadata (reusable)
+shape PaginationMetaShape = array{
+    current_page: int,
+    per_page: int,
+    total: int,
+    last_page: int
+};
+
+// ============================================
+// Job Shapes with Inheritance
+// ============================================
+
+// Base job response for list views
 shape JobResponseShape = array{
     id: ?int,
     title: string,
@@ -40,6 +61,13 @@ shape JobResponseShape = array{
     source: string
 };
 
+// Detailed job response - extends base with description
+shape JobDetailResponseShape extends JobResponseShape = array{
+    description: string,
+    posted_at: ?string
+};
+
+// Normalized job shape for internal processing
 shape NormalizedJobShape = array{
     external_id: string,
     source: string,
@@ -58,13 +86,7 @@ shape NormalizedJobShape = array{
     posted_at: ?string
 };
 
-shape PaginationMetaShape = array{
-    current_page: int,
-    per_page: int,
-    total: int,
-    last_page: int
-};
-
+// Paginated response using normalized jobs
 shape PaginatedResponseShape = array{
     data: array<NormalizedJobShape>,
     meta: PaginationMetaShape
@@ -91,6 +113,15 @@ class BenchmarkCommand extends Command
             '(with typed arrays and array shapes)',
             'PHP Version: ' . PHP_VERSION,
             'Iterations: ' . number_format($iterations),
+        ]);
+
+        // Show shape names using ::shape syntax
+        $io->section('Shapes used (via ::shape syntax):');
+        $io->listing([
+            JobResponseShape::shape,
+            JobDetailResponseShape::shape . ' (extends JobResponseShape)',
+            NormalizedJobShape::shape,
+            PaginatedResponseShape::shape,
         ]);
 
         $results = [];
@@ -158,6 +189,20 @@ class BenchmarkCommand extends Command
         $end = hrtime(true);
         $results['nested_creation'] = ($end - $start) / 1e6;
         $io->text('  Time: ' . number_format($results['nested_creation'], 2) . ' ms');
+
+        // Benchmark 6: Create detailed job responses (inherited shape)
+        $io->section('Benchmark 6: Creating detailed job responses (inherited shape)...');
+        $start = hrtime(true);
+        $detailCount = 0;
+        foreach ($this->createDetailedResponses($this->createEntities($iterations)) as $detail) {
+            $detailCount++;
+        }
+        $end = hrtime(true);
+        $results['inherited_shape'] = ($end - $start) / 1e6;
+        $io->text([
+            '  Time: ' . number_format($results['inherited_shape'], 2) . ' ms',
+            '  Detailed responses: ' . $detailCount,
+        ]);
 
         // Summary
         $io->title('SUMMARY');
@@ -246,6 +291,39 @@ class BenchmarkCommand extends Command
             'tags' => $job->getTags() ?? [],
             'source' => $job->getSource(),
         ];
+    }
+
+    /**
+     * Format a job entity to detailed response array.
+     * Returns a JobDetailResponseShape - inherits from JobResponseShape.
+     */
+    private function formatDetailedJobResponse(JobListing $job): JobDetailResponseShape
+    {
+        return [
+            'id' => $job->getId(),
+            'title' => $job->getTitle(),
+            'company_name' => $job->getCompanyName(),
+            'company_logo' => $job->getCompanyLogo(),
+            'location' => $job->getLocation(),
+            'remote' => $job->isRemote(),
+            'job_type' => $job->getJobType(),
+            'salary' => $this->formatSalary($job),
+            'url' => $job->getUrl(),
+            'tags' => $job->getTags() ?? [],
+            'source' => $job->getSource(),
+            'description' => $job->getDescription() ?? '',
+            'posted_at' => null,
+        ];
+    }
+
+    /**
+     * Transform entities to detailed responses (using inherited shape).
+     */
+    private function createDetailedResponses(iterable $entities): \Generator
+    {
+        foreach ($entities as $entity) {
+            yield $this->formatDetailedJobResponse($entity);
+        }
     }
 
     /**

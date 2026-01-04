@@ -10,9 +10,17 @@ use Illuminate\Console\Command;
  *
  * Creates models in memory and processes arrays to measure performance.
  * Uses native PHP typed arrays and shape aliases for runtime validation.
+ *
+ * Shape Inheritance:
+ * - JobDetailResponseShape extends JobResponseShape (adds description)
+ * - Uses ::shape syntax for shape name references
  */
 
-// Define shape aliases for benchmarking
+// ============================================
+// Base Shapes
+// ============================================
+
+// Salary information (reusable component)
 shape SalaryShape = array{
     min: ?int,
     max: ?int,
@@ -20,6 +28,19 @@ shape SalaryShape = array{
     formatted: string
 };
 
+// Pagination metadata (reusable)
+shape PaginationMetaShape = array{
+    current_page: int,
+    per_page: int,
+    total: int,
+    last_page: int
+};
+
+// ============================================
+// Job Shapes with Inheritance
+// ============================================
+
+// Base job response for list views
 shape JobResponseShape = array{
     id: ?int,
     title: string,
@@ -34,6 +55,13 @@ shape JobResponseShape = array{
     source: string
 };
 
+// Detailed job response - extends base with description
+shape JobDetailResponseShape extends JobResponseShape = array{
+    description: string,
+    posted_at: ?string
+};
+
+// Normalized job shape for internal processing
 shape NormalizedJobShape = array{
     external_id: string,
     source: string,
@@ -52,13 +80,7 @@ shape NormalizedJobShape = array{
     posted_at: ?string
 };
 
-shape PaginationMetaShape = array{
-    current_page: int,
-    per_page: int,
-    total: int,
-    last_page: int
-};
-
+// Paginated response using normalized jobs
 shape PaginatedResponseShape = array{
     data: array<NormalizedJobShape>,
     meta: PaginationMetaShape
@@ -79,6 +101,14 @@ class BenchmarkCommand extends Command
         $this->info("==============================================");
         $this->info("PHP Version: " . PHP_VERSION);
         $this->info("Iterations: " . number_format($iterations));
+        $this->newLine();
+
+        // Show shape names using ::shape syntax
+        $this->info("Shapes used (via ::shape syntax):");
+        $this->line("  " . JobResponseShape::shape);
+        $this->line("  " . JobDetailResponseShape::shape . " (extends JobResponseShape)");
+        $this->line("  " . NormalizedJobShape::shape);
+        $this->line("  " . PaginatedResponseShape::shape);
         $this->newLine();
 
         $results = [];
@@ -138,6 +168,18 @@ class BenchmarkCommand extends Command
         $end = hrtime(true);
         $results['nested_creation'] = ($end - $start) / 1e6;
         $this->line("  Time: " . number_format($results['nested_creation'], 2) . " ms");
+
+        // Benchmark 6: Create detailed job responses (inherited shape)
+        $this->info("Benchmark 6: Creating detailed job responses (inherited shape)...");
+        $start = hrtime(true);
+        $detailCount = 0;
+        foreach ($this->createDetailedResponses($this->createModels($iterations)) as $detail) {
+            $detailCount++;
+        }
+        $end = hrtime(true);
+        $results['inherited_shape'] = ($end - $start) / 1e6;
+        $this->line("  Time: " . number_format($results['inherited_shape'], 2) . " ms");
+        $this->line("  Detailed responses: " . $detailCount);
 
         // Summary
         $this->newLine();
@@ -226,6 +268,39 @@ class BenchmarkCommand extends Command
             'tags' => $job->tags ?? [],
             'source' => $job->source,
         ];
+    }
+
+    /**
+     * Format a job model to detailed response array.
+     * Returns a JobDetailResponseShape - inherits from JobResponseShape.
+     */
+    private function formatDetailedJobResponse(JobListing $job): JobDetailResponseShape
+    {
+        return [
+            'id' => $job->id,
+            'title' => $job->title,
+            'company_name' => $job->company_name,
+            'company_logo' => $job->company_logo,
+            'location' => $job->location,
+            'remote' => $job->remote,
+            'job_type' => $job->job_type,
+            'salary' => $this->formatSalary($job),
+            'url' => $job->url,
+            'tags' => $job->tags ?? [],
+            'source' => $job->source,
+            'description' => $job->description ?? '',
+            'posted_at' => null,
+        ];
+    }
+
+    /**
+     * Transform models to detailed responses (using inherited shape).
+     */
+    private function createDetailedResponses(iterable $models): \Generator
+    {
+        foreach ($models as $model) {
+            yield $this->formatDetailedJobResponse($model);
+        }
     }
 
     /**

@@ -1,0 +1,164 @@
+# =============================================================================
+# Standard PHP 8.5.1 (WITHOUT array shapes patch)
+# All-in-one: PHP-FPM (Unix socket) + Nginx + PostgreSQL + Composer + Laravel
+# =============================================================================
+
+FROM debian:bookworm-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    bison \
+    build-essential \
+    ca-certificates \
+    curl \
+    git \
+    libcurl4-openssl-dev \
+    libonig-dev \
+    libreadline-dev \
+    libsqlite3-dev \
+    libssl-dev \
+    libxml2-dev \
+    libzip-dev \
+    libpq-dev \
+    pkg-config \
+    re2c \
+    zlib1g-dev \
+    libpng-dev \
+    libjpeg-dev \
+    libfreetype6-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/php
+
+# Clone official PHP 8.5.1 (no patch)
+RUN git clone --depth 1 --branch PHP-8.5.1 https://github.com/php/php-src.git .
+
+# Build PHP
+RUN ./buildconf --force
+
+RUN ./configure \
+    --prefix=/usr/local/php \
+    --with-config-file-path=/usr/local/php/etc \
+    --with-config-file-scan-dir=/usr/local/php/etc/conf.d \
+    --enable-bcmath \
+    --enable-fpm \
+    --enable-mbstring \
+    --enable-opcache \
+    --enable-pcntl \
+    --enable-sockets \
+    --with-curl \
+    --with-openssl \
+    --with-pdo-mysql \
+    --with-pdo-pgsql \
+    --with-pgsql \
+    --with-pdo-sqlite \
+    --with-readline \
+    --with-zip \
+    --with-zlib \
+    --enable-gd \
+    --with-freetype \
+    --with-jpeg \
+    --disable-cgi \
+    --disable-phpdbg
+
+RUN make -j$(nproc)
+RUN make install
+
+# Create config directories
+RUN mkdir -p /usr/local/php/etc/conf.d
+RUN cp php.ini-production /usr/local/php/etc/php.ini
+
+# =============================================================================
+# Runtime image
+# =============================================================================
+
+FROM debian:bookworm-slim AS runtime
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install runtime dependencies + Nginx + PostgreSQL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    unzip \
+    nginx \
+    postgresql \
+    postgresql-contrib \
+    sudo \
+    supervisor \
+    libcurl4 \
+    libonig5 \
+    libreadline8 \
+    libsqlite3-0 \
+    libssl3 \
+    libxml2 \
+    libzip4 \
+    libpq5 \
+    libpng16-16 \
+    libjpeg62-turbo \
+    libfreetype6 \
+    zlib1g \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy PHP from builder
+COPY --from=builder /usr/local/php /usr/local/php
+
+# Create symlinks
+RUN ln -s /usr/local/php/bin/php /usr/local/bin/php \
+    && ln -s /usr/local/php/bin/phpize /usr/local/bin/phpize \
+    && ln -s /usr/local/php/bin/php-config /usr/local/bin/php-config \
+    && ln -s /usr/local/php/sbin/php-fpm /usr/local/bin/php-fpm
+
+# Install Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Install Laravel Installer globally
+ENV COMPOSER_ALLOW_SUPERUSER=1
+RUN composer global require laravel/installer
+ENV PATH="/root/.composer/vendor/bin:${PATH}"
+
+# Create directories
+RUN mkdir -p /var/run/php /var/log/php /app/public
+
+# Configure PHP-FPM to use Unix socket
+RUN cp /usr/local/php/etc/php-fpm.conf.default /usr/local/php/etc/php-fpm.conf \
+    && cp /usr/local/php/etc/php-fpm.d/www.conf.default /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|listen = 127.0.0.1:9000|listen = /var/run/php/php-fpm.sock|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|;listen.owner = www-data|listen.owner = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|;listen.group = www-data|listen.group = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|;listen.mode = 0660|listen.mode = 0660|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|user = nobody|user = www-data|' /usr/local/php/etc/php-fpm.d/www.conf \
+    && sed -i 's|group = nobody|group = www-data|' /usr/local/php/etc/php-fpm.d/www.conf
+
+# Configure Nginx
+COPY nginx-vhost.conf /etc/nginx/sites-available/default
+
+# Configure Supervisor to manage all services
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create default index.php
+RUN echo '<?php phpinfo();' > /app/public/index.php \
+    && chown -R www-data:www-data /app
+
+# PostgreSQL data directory
+RUN mkdir -p /var/run/postgresql && chown -R postgres:postgres /var/run/postgresql
+
+WORKDIR /app
+
+EXPOSE 80 5432
+
+# Labels
+LABEL org.opencontainers.image.title="PHP 8.5.1 Standard (No Array Shapes)"
+LABEL org.opencontainers.image.description="Standard PHP 8.5.1 with Nginx + PostgreSQL"
+LABEL php.version="8.5.1"
+LABEL php.variant="standard"
+
+# Entrypoint
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

@@ -1,0 +1,96 @@
+services:
+  # =============================================================================
+  # LARAVEL
+  # =============================================================================
+
+  laravel-standard:
+    build:
+      context: .
+      dockerfile: Dockerfile.standard
+    container_name: showcase-laravel-standard
+    hostname: laravel-standard
+    volumes:
+      - ./laravel/standard:/app
+      - ./src:/demo
+    ports:
+      - "8180:80"
+      - "5532:5432"
+    environment:
+      - PHP_VARIANT=standard
+      - FRAMEWORK=laravel
+      - DB_CONNECTION=pgsql
+      - DB_HOST=127.0.0.1
+      - DB_PORT=5432
+      - DB_DATABASE=laravel
+      - DB_USERNAME=laravel
+      - DB_PASSWORD=laravel
+
+  laravel-patched:
+    build:
+      context: .
+      dockerfile: Dockerfile.patched
+    container_name: showcase-laravel-patched
+    hostname: laravel-patched
+    volumes:
+      - ./laravel/patched:/app
+      - ./src:/demo
+    ports:
+      - "8181:80"
+      - "5533:5432"
+    environment:
+      - PHP_VARIANT=patched
+      - FRAMEWORK=laravel
+      - DB_CONNECTION=pgsql
+      - DB_HOST=127.0.0.1
+      - DB_PORT=5432
+      - DB_DATABASE=laravel
+      - DB_USERNAME=laravel
+      - DB_PASSWORD=laravel
+
+  # =============================================================================
+  # SYMFONY
+  # =============================================================================
+
+  symfony-standard:
+    build:
+      context: .
+      dockerfile: Dockerfile.standard
+    container_name: showcase-symfony-standard
+    hostname: symfony-standard
+    volumes:
+      - ./symfony/standard:/app
+      - ./src:/demo
+    ports:
+      - "8280:80"
+      - "5632:5432"
+    environment:
+      - PHP_VARIANT=standard
+      - FRAMEWORK=symfony
+      - DB_CONNECTION=pgsql
+      - DB_HOST=127.0.0.1
+      - DB_PORT=5432
+      - DB_DATABASE=symfony
+      - DB_USERNAME=symfony
+      - DB_PASSWORD=symfony
+
+  symfony-patched:
+    build:
+      context: .
+      dockerfile: Dockerfile.patched
+    container_name: showcase-symfony-patched
+    hostname: symfony-patched
+    volumes:
+      - ./symfony/patched:/app
+      - ./src:/demo
+    ports:
+      - "8281:80"
+      - "5633:5432"
+    environment:
+      - PHP_VARIANT=patched
+      - FRAMEWORK=symfony
+      - DB_CONNECTION=pgsql
+      - DB_HOST=127.0.0.1
+      - DB_PORT=5432
+      - DB_DATABASE=symfony
+      - DB_USERNAME=symfony
+      - DB_PASSWORD=symfony

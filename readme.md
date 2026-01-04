@@ -1,7 +1,7 @@
 # PHP RFC: Typed Arrays & Array Shapes
 
-* Version: 2.3
-* Date: 2026-01-03
+* Version: 2.4
+* Date: 2026-01-04
 * Author: [Signalforger] <signalforger@signalforge.eu>
 * Status: Implemented (Proof of Concept)
 * Target Version: PHP 8.5
@@ -27,6 +27,8 @@
 - [Property Types](#property-types)
   - [Error Messages for Properties](#error-messages-for-properties)
 - [Shape Type Aliases](#shape-type-aliases)
+  - [Shape Inheritance](#shape-inheritance)
+  - [The ::shape Syntax](#the-shape-syntax)
   - [Shape Autoloading](#shape-autoloading)
   - [shape_exists() Function](#shape_exists-function)
 - [Closed Shapes](#closed-shapes)
@@ -287,6 +289,14 @@ shape User = array{id: int, name: string};
 shape Point = array{x: int, y: int};
 shape Config = array{debug: bool, cache?: int};
 
+// Shape inheritance (extends)
+shape BaseUser = array{id: int, name: string};
+shape AdminUser extends BaseUser = array{role: string, permissions: array<string>};
+
+// ::shape syntax (get shape name)
+echo UserRecord::shape;           // "UserRecord"
+echo \App\Types\User::shape;      // "App\Types\User"
+
 // Property types (typed class properties)
 class Example {
     public array<int> $ids = [];
@@ -463,6 +473,96 @@ function getUser(int $id): User {
 function processUser(User $user): void {
     echo "Processing: {$user['name']}";
 }
+```
+
+### Shape Inheritance
+
+Shapes can extend other shapes using the `extends` keyword. Child shapes inherit all fields from their parent and can add new fields:
+
+```php
+// Base shape with common fields
+shape BaseUser = array{
+    id: int,
+    name: string,
+    email: string
+};
+
+// Extended shape adds new fields
+shape UserRecord extends BaseUser = array{
+    created_at: string,
+    is_active?: bool
+};
+
+// Further extension
+shape AdminUser extends UserRecord = array{
+    role: string,
+    permissions: array<string>
+};
+
+function getAdmin(int $id): AdminUser {
+    return [
+        'id' => $id,
+        'name' => 'Alice',
+        'email' => 'alice@example.com',
+        'created_at' => '2024-01-15',
+        'is_active' => true,
+        'role' => 'admin',
+        'permissions' => ['users.read', 'users.write']
+    ];
+}
+```
+
+**Compile-time flattening**: Shape inheritance is resolved at compile time. The child shape contains all fields from the parent plus its own fields, flattened into a single shape definition. This means no runtime overhead for inheritance.
+
+**Restrictions**: Shapes and classes are separate concepts and cannot be mixed:
+
+```php
+// Shape cannot extend a class
+class MyClass {}
+shape BadShape extends MyClass = array{id: int};
+// Fatal error: Shape BadShape cannot extend class MyClass
+
+// Class cannot extend a shape
+shape MyShape = array{id: int};
+class BadClass extends MyShape {}
+// Fatal error: Class BadClass cannot extend shape MyShape
+```
+
+### The ::shape Syntax
+
+Similar to how classes can be referenced with `::class`, shapes can be referenced with `::shape` to get their fully qualified name:
+
+```php
+shape UserRecord = array{id: int, name: string};
+
+echo UserRecord::shape;  // "UserRecord"
+
+// In a namespace
+namespace App\Types;
+shape ApiResponse = array{success: bool, data: mixed};
+
+echo ApiResponse::shape;  // "App\Types\ApiResponse"
+echo \App\Types\ApiResponse::shape;  // "App\Types\ApiResponse"
+
+// Useful for logging, debugging, and reflection
+function logShape(string $shapeName): void {
+    echo "Processing shape: $shapeName";
+}
+logShape(UserRecord::shape);
+```
+
+**Compile-time resolution**: The `::shape` syntax is resolved at compile time, making it zero-cost at runtime.
+
+**Error handling**: Using `::shape` on a class or `::class` on a shape produces clear error messages:
+
+```php
+class MyClass {}
+echo MyClass::shape;
+// Fatal error: Cannot use ::shape on class MyClass, use ::class instead
+
+shape MyShape = array{id: int};
+echo MyShape::class;
+// Fatal error: Cannot use ::class on shape MyShape, use ::shape instead
 ```
 
 ### Shape Autoloading
@@ -768,13 +868,16 @@ class IntProvider extends NumberProvider {
 - [x] Union types: `array<int|string>`
 - [x] Nested structures: `array<array<int>>`, `array{user: array{id: int}}`
 - [x] Shape type aliases: `shape Name = array{...}`
+- [x] **Shape inheritance**: `shape Child extends Parent = array{...}`
+- [x] **::shape syntax**: `UserRecord::shape` returns fully qualified shape name
 - [x] Shape autoloading via `spl_autoload_register()`
 - [x] Reflection API support (`ReflectionArrayType`, `ReflectionArrayShapeType`)
 - [x] Runtime validation with detailed error messages
 - [x] **Property types**: `public array<int> $ids;`, `public array{id: int} $user;`
 - [x] **Closed shapes**: `array{id: int}!` (no extra keys allowed)
+- [x] **Compile-time validation**: Shape/class cross-inheritance prevention
 
-All 79 tests pass (76 pass + 3 expected failures for autoloading feature).
+All 33 array shape tests pass (30 pass + 3 expected failures for autoloading feature).
 
 ## Performance Optimizations
 
@@ -1033,7 +1136,7 @@ This proposal is fully backward compatible:
 Potential future enhancements (not part of this RFC):
 
 1. **Readonly shapes**: Immutable array structures
-2. **Shape inheritance**: `shape Admin extends User`
+2. **Shape variance in inheritance**: Covariant/contravariant field types
 
 ## Source Code
 
@@ -1055,6 +1158,7 @@ Potential future enhancements (not part of this RFC):
 - **v2.1 (2026-01-03):** Added property type support for typed arrays and array shapes
 - **v2.2 (2026-01-03):** Added closed shapes `array{...}!` for strict key validation
 - **v2.3 (2026-01-03):** Added performance optimizations: element/key type caching, SIMD validation, class entry caching, object array optimizations
+- **v2.4 (2026-01-04):** Added shape inheritance (`extends`), `::shape` syntax, compile-time validation for shape/class cross-inheritance
 
 ## References
 

@@ -981,13 +981,29 @@ Every language that implements generics must choose an approach, each with trade
 
 For PHP, type erasure would duplicate what static analyzers (PHPStan, Psalm) already provide. Reification would require significant engine changes (C#'s implementation took Microsoft Research six years). Monomorphization is designed for ahead of time compilation, not interpreted execution.
 
+### Where Generics Originated
+
+Generics were designed to solve specific problems in other languages:
+
+| Language | Problem | Generic Solution |
+|----------|---------|------------------|
+| C++ (STL) | Writing reusable algorithms for any container type | Templates let `sort<T>` work with vectors, arrays, deques |
+| Java | Fixed size arrays; unsafe Object collections pre Java 5 | `ArrayList<T>` provides growable, type safe collections |
+| Rust | Zero cost abstractions for systems programming | Monomorphization compiles generic code to type specific machine code |
+| C# | Separate collection types with no type safety | Reified generics with full runtime type information |
+
+These languages needed generics because their built in collections were inflexible or unsafe.
+
 ### PHP's Context
 
-PHP differs from languages where generics originated:
+PHP solved these problems differently from the start:
 
-1. **Arrays are the universal container**: Unlike Java (fixed size arrays) or C# (separate collection types), PHP arrays are dynamic, associative, and used everywhere
-2. **Runtime type enforcement**: PHP validates types during execution, making compile time only checking less valuable
-3. **Request response model**: Each request starts fresh, reducing the need for complex type hierarchies
+1. **Arrays are the universal container**: PHP arrays are dynamic, associative, and growable. There's no need for `ArrayList<T>` when `array` already does everything.
+2. **Runtime type enforcement**: PHP validates types during execution. Compile time only checking (type erasure) adds little value.
+3. **Request response model**: Each request starts fresh. Type errors don't accumulate over long running processes.
+4. **Built in array functions**: `sort()`, `array_map()`, `array_filter()` already work with any array. No need to write generic algorithms.
+
+Generics are a solution to problems PHP solved differently from the start. What PHP developers actually need is type declarations for the containers they already have.
 
 ### What This RFC Provides
 

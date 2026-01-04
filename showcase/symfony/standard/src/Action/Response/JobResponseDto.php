@@ -1,0 +1,45 @@
+<?php
+
+namespace App\Action\Response;
+
+/**
+ * Job response for list views.
+ */
+readonly class JobResponseDto implements \JsonSerializable
+{
+    /**
+     * @param array<string> $tags
+     */
+    public function __construct(
+        public int $id,
+        public string $title,
+        public string $companyName,
+        public ?string $companyLogo,
+        public string $location,
+        public bool $remote,
+        public string $jobType,
+        public SalaryRangeDto $salary,
+        public string $url,
+        public array $tags,
+        public string $source,
+        public ?string $postedAt,
+    ) {}
+
+    public function jsonSerialize(): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'company_name' => $this->companyName,
+            'company_logo' => $this->companyLogo,
+            'location' => $this->location,
+            'remote' => $this->remote,
+            'job_type' => $this->jobType,
+            'salary' => $this->salary->jsonSerialize(),
+            'url' => $this->url,
+            'tags' => $this->tags,
+            'source' => $this->source,
+            'posted_at' => $this->postedAt,
+        ];
+    }
+}

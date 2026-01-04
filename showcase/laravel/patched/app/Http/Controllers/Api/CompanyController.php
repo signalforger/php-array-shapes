@@ -68,6 +68,48 @@ class CompanyController extends Controller
             ];
         });
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         return response()->json([
             'data' => $companies,
             'meta' => [

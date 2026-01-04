@@ -85,15 +85,3 @@ shape PokeApiList = array{
     results: array<PokeApiListItem>
 };
 
-// ============================================
-// Request Shapes
-// ============================================
-
-shape GetPokemonRequest = array{
-    name_or_id: int|string
-};
-
-shape ListPokemonRequest = array{
-    limit?: int,
-    offset?: int
-};

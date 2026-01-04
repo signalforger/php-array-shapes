@@ -26,7 +26,10 @@
             "Database\\Seeders\\": "database/seeders/"
         },
         "files": [
-            "app/Action/Response/shapes.php"
+            "app/Shapes/BaseShapes.php",
+            "app/Shapes/JobShapes.php",
+            "app/Shapes/RequestShapes.php",
+            "app/Shapes/PokemonShapes.php"
         ]
     },
     "autoload-dev": {

@@ -54,7 +54,7 @@ function plainNested(array $n): string {
 // RUN PLAIN BENCHMARKS
 // ============================================================================
 
-echo "Running plain array benchmarks (no strict_arrays)...\n";
+echo "Running plain array benchmarks (no type hints)...\n";
 
 // Warm up
 for ($i = 0; $i < 10000; $i++) {
@@ -94,12 +94,12 @@ echo "Done.\n\n";
 // NOW INCLUDE STRICT ARRAYS FILE
 // ============================================================================
 
-echo "Running shaped array benchmarks (with strict_arrays=1)...\n";
+echo "Running shaped array benchmarks (validated)...\n";
 
-// We need to use a separate file for strict_arrays since declare is file-scoped
+// We use a separate file to avoid function redefinition
 $shapeCode = <<<'PHP'
 <?php
-declare(strict_arrays=1);
+// Note: declare(strict_arrays=1) is no longer required - validation is always enabled
 
 $iterations = $argv[1];
 $testCase = $argv[2];

@@ -37,7 +37,10 @@
             "App\\": "src/"
         },
         "files": [
-            "src/Action/Response/shapes.php"
+            "src/Shapes/BaseShapes.php",
+            "src/Shapes/JobShapes.php",
+            "src/Shapes/RequestShapes.php",
+            "src/Shapes/PokemonShapes.php"
         ]
     },
     "autoload-dev": {

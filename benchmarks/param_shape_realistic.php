@@ -72,11 +72,11 @@ echo "Done.\n\n";
 // SHAPED VERSION (via external file)
 // ============================================================================
 
-echo "Running shaped array benchmark (strict_arrays=1)...\n";
+echo "Running shaped array benchmark...\n";
 
 $shapeCode = <<<'PHP'
 <?php
-declare(strict_arrays=1);
+// Note: declare(strict_arrays=1) is no longer required - validation is always enabled
 
 $iterations = $argv[1];
 
@@ -152,7 +152,7 @@ echo "╔═══════════════════════�
 echo "║                     REALISTIC BENCHMARK RESULTS                      ║\n";
 echo "╠══════════════════════════════════════════════════════════════════════╣\n";
 printf("║  Plain array (no validation):     %10.2f ms                     ║\n", $plainTime);
-printf("║  Array shapes (strict_arrays=1): %10.2f ms                     ║\n", $shapedTime);
+printf("║  Array shapes (validated):       %10.2f ms                     ║\n", $shapedTime);
 echo "╠══════════════════════════════════════════════════════════════════════╣\n";
 printf("║  Absolute overhead:               %+10.2f ms                     ║\n", $overhead);
 printf("║  Relative overhead:               %+10.1f%%                       ║\n", $percent);

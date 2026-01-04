@@ -1,0 +1,94 @@
+{
+  "scopeName": "source.php.array-shapes",
+  "injectionSelector": "L:source.php, L:text.html.php",
+  "patterns": [
+    { "include": "#typed-array" },
+    { "include": "#array-shape" },
+    { "include": "#shape-declaration" }
+  ],
+  "repository": {
+    "typed-array": {
+      "name": "meta.type.array.typed.php",
+      "match": "\\b(array)\\s*(<)([^>]+)(>)",
+      "captures": {
+        "1": { "name": "support.class.php" },
+        "2": { "name": "punctuation.definition.generic.begin.php" },
+        "3": {
+          "name": "meta.generic.type.php",
+          "patterns": [
+            { "include": "#type-content" }
+          ]
+        },
+        "4": { "name": "punctuation.definition.generic.end.php" }
+      }
+    },
+    "array-shape": {
+      "name": "meta.type.array.shape.php",
+      "begin": "\\b(array)\\s*(\\{)",
+      "beginCaptures": {
+        "1": { "name": "support.class.php" },
+        "2": { "name": "punctuation.definition.shape.begin.php" }
+      },
+      "end": "(\\})(\\!)?",
+      "endCaptures": {
+        "1": { "name": "punctuation.definition.shape.end.php" },
+        "2": { "name": "keyword.operator.closed-shape.php" }
+      },
+      "patterns": [
+        { "include": "#shape-member" }
+      ]
+    },
+    "shape-member": {
+      "name": "meta.shape.member.php",
+      "match": "([a-zA-Z_][a-zA-Z0-9_]*)(\\?)?\\s*(:)\\s*([^,}]+)",
+      "captures": {
+        "1": { "name": "variable.other.property.php" },
+        "2": { "name": "keyword.operator.optional.php" },
+        "3": { "name": "punctuation.separator.colon.php" },
+        "4": {
+          "name": "meta.shape.member.type.php",
+          "patterns": [
+            { "include": "#type-content" }
+          ]
+        }
+      }
+    },
+    "shape-declaration": {
+      "name": "meta.shape.declaration.php",
+      "match": "^\\s*(shape)\\s+([A-Z][a-zA-Z0-9_]*)\\s*(=)",
+      "captures": {
+        "1": { "name": "storage.type.shape.php" },
+        "2": { "name": "entity.name.type.shape.php" },
+        "3": { "name": "keyword.operator.assignment.php" }
+      }
+    },
+    "type-content": {
+      "patterns": [
+        {
+          "name": "support.class.builtin.php",
+          "match": "\\b(int|string|float|bool|array|object|mixed|null|void|never|true|false|callable|iterable|self|static|parent)\\b"
+        },
+        {
+          "name": "support.class.php",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*\\b"
+        },
+        {
+          "name": "punctuation.separator.union.php",
+          "match": "\\|"
+        },
+        {
+          "name": "punctuation.separator.intersection.php",
+          "match": "&"
+        },
+        {
+          "name": "punctuation.separator.comma.php",
+          "match": ","
+        },
+        {
+          "name": "keyword.operator.nullable.php",
+          "match": "\\?"
+        }
+      ]
+    }
+  }
+}

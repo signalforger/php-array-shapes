@@ -1052,6 +1052,8 @@ All type caches are automatically invalidated when arrays are mutated. The inval
 | Large numeric arrays (16+) | SIMD/AVX2 | ~8x throughput |
 | Deep nesting | Recursion limit | Prevents stack overflow |
 
+For detailed benchmark results, see [benchmarks.md](benchmarks.md).
+
 ## Why Native Types Instead of Static Analysis?
 
 Tools like PHPStan and Psalm already support array shapes via docblocks. Why add native syntax?

@@ -82,3 +82,63 @@ shape ErrorResponse = array{
     error: string,
     code: int
 };
+
+// ============================================
+// PokeAPI Response Shapes
+// ============================================
+
+// Pokemon stat (hp, attack, defense, etc.)
+shape PokemonStat = array{
+    name: string,
+    base_stat: int,
+    effort: int
+};
+
+// Pokemon type (fire, water, grass, etc.)
+shape PokemonType = array{
+    slot: int,
+    name: string
+};
+
+// Pokemon ability
+shape PokemonAbility = array{
+    name: string,
+    is_hidden: bool,
+    slot: int
+};
+
+// Pokemon sprites/images
+shape PokemonSprites = array{
+    front_default: ?string,
+    front_shiny: ?string,
+    back_default: ?string,
+    back_shiny: ?string,
+    official_artwork: ?string
+};
+
+// Single Pokemon response
+shape PokemonResponse = array{
+    id: int,
+    name: string,
+    height: int,
+    weight: int,
+    base_experience: ?int,
+    types: array<PokemonType>,
+    stats: array<PokemonStat>,
+    abilities: array<PokemonAbility>,
+    sprites: PokemonSprites
+};
+
+// Pokemon list item (from paginated list)
+shape PokemonListItem = array{
+    name: string,
+    url: string
+};
+
+// Paginated Pokemon list response
+shape PokemonListResponse = array{
+    count: int,
+    next: ?string,
+    previous: ?string,
+    results: array<PokemonListItem>
+};

@@ -1,0 +1,59 @@
+<idea-plugin>
+    <id>com.signalforger.php-array-shapes</id>
+    <name>PHP Array Shapes</name>
+    <version>1.0.0</version>
+    <vendor email="signalforger@signalforge.eu" url="https://github.com/signalforger/php-array-shapes">
+        Signalforger
+    </vendor>
+
+    <description><![CDATA[
+        Adds syntax highlighting support for the PHP Typed Arrays & Array Shapes RFC.
+
+        <h3>Supported Syntax</h3>
+        <ul>
+            <li><code>array&lt;Type&gt;</code> - Typed arrays</li>
+            <li><code>array&lt;KeyType, ValueType&gt;</code> - Typed maps</li>
+            <li><code>array{key: type}</code> - Array shapes</li>
+            <li><code>array{key: type}!</code> - Closed array shapes</li>
+            <li><code>array{key?: type}</code> - Optional keys</li>
+            <li><code>shape Name = array{...}</code> - Shape type aliases</li>
+        </ul>
+
+        <h3>Note</h3>
+        <p>This plugin provides syntax highlighting only. Full IDE support will be available
+        after PHP officially adopts the RFC.</p>
+    ]]></description>
+
+    <change-notes><![CDATA[
+        <h3>1.0.0</h3>
+        <ul>
+            <li>Initial release</li>
+            <li>Syntax highlighting for typed arrays and array shapes</li>
+            <li>Error suppression for new syntax in PHP files</li>
+        </ul>
+    ]]></change-notes>
+
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.jetbrains.php</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Annotator for syntax highlighting -->
+        <annotator
+            language="PHP"
+            implementationClass="com.signalforger.phparrayshapes.ArrayShapesAnnotator"/>
+
+        <!-- Suppress errors for new syntax -->
+        <localInspection
+            language="PHP"
+            groupName="PHP"
+            shortName="ArrayShapesSyntaxInspection"
+            displayName="Array shapes syntax support"
+            enabledByDefault="true"
+            level="INFORMATION"
+            implementationClass="com.signalforger.phparrayshapes.ArrayShapesSyntaxInspection"/>
+
+        <!-- Color settings page -->
+        <colorSettingsPage
+            implementation="com.signalforger.phparrayshapes.ArrayShapesColorSettingsPage"/>
+    </extensions>
+</idea-plugin>

@@ -1,9 +1,11 @@
 # RFC: Typed Arrays & Array Shapes for PHP
 
-* Version: 1.1
-* Date: 2025-01-03
+* Version: 1.3
+* Date: 2026-01-04
 * Author: PHP Array Shapes Implementation
 * Status: Implemented (Proof of Concept)
+* New in 1.3: Compile-time validation for shape/class cross-inheritance
+* New in 1.2: Shape inheritance (`extends`) and `::shape` syntax
 
 ## Introduction
 
@@ -356,6 +358,85 @@ function processUser(User $user): void {
 }
 ```
 
+#### Shape Inheritance
+
+Shapes can extend other shapes using the `extends` keyword. The child shape
+inherits all properties from the parent and can add new ones or override existing ones:
+
+```php
+shape BaseEntity = array{id: int, created_at: string};
+shape User extends BaseEntity = array{name: string, email: string};
+shape Admin extends User = array{role: string, permissions: array<string>};
+
+// User has: id, created_at, name, email
+// Admin has: id, created_at, name, email, role, permissions
+```
+
+Inheritance is resolved at compile time (flattened), so there's no runtime
+overhead. The child shape contains all properties from the entire inheritance chain.
+
+**Property Override:**
+
+Child shapes can override parent properties with a different type:
+
+```php
+shape Base = array{value: string};
+shape Child extends Base = array{value: int};  // Override string to int
+
+// Child's 'value' is now int, not string
+```
+
+**Restrictions:**
+
+Shapes and classes are separate concepts and cannot be mixed in inheritance:
+
+- Shapes cannot extend classes
+- Classes cannot extend shapes
+
+These restrictions are enforced at **compile time** with clear error messages:
+
+```php
+// Shape trying to extend a class
+class MyClass {}
+shape BadShape extends MyClass = array{id: int};
+// Fatal error: Shape BadShape cannot extend class MyClass
+
+// Class trying to extend a shape
+shape MyShape = array{id: int, name: string};
+class BadClass extends MyShape {}
+// Fatal error: Class BadClass cannot extend shape MyShape
+```
+
+#### The `::shape` Syntax
+
+Similar to `::class` for classes, shapes support the `::shape` syntax to get
+the fully qualified name of a shape:
+
+```php
+shape UserShape = array{id: int, name: string};
+
+echo UserShape::shape;  // "UserShape"
+```
+
+With namespaces:
+
+```php
+namespace App\Types;
+
+shape UserShape = array{id: int, name: string};
+
+echo UserShape::shape;  // "App\Types\UserShape"
+```
+
+This is useful for logging, debugging, and working with shape names dynamically.
+
+**Note:** Using `::shape` on a class results in a compile error:
+
+```php
+class MyClass {}
+echo MyClass::shape;  // Error: Cannot use ::shape on class MyClass, use ::class instead
+```
+
 #### Shape Autoloading
 
 Shapes can be autoloaded using the standard `spl_autoload_register()` mechanism:
@@ -467,7 +548,15 @@ shape_element:
   ;
 
 shape_declaration:
-    'shape' T_STRING '=' array_type ';'
+    'shape' T_STRING shape_extends? '=' array_type ';'
+  ;
+
+shape_extends:
+    'extends' name                               // shape inheritance
+  ;
+
+shape_name_access:
+    name '::' 'shape'                            // MyShape::shape
   ;
 ```
 
@@ -498,6 +587,20 @@ function getUser(): array{id: int, name: string} { ... }
 - Consistent across all tools
 
 ## Implementation Notes
+
+### Compile-Time Validation
+
+The compiler performs several validations at compile time to catch errors early:
+
+| Error Condition | Error Message |
+|----------------|---------------|
+| Shape extends a class | `Shape X cannot extend class Y` |
+| Class extends a shape | `Class X cannot extend shape Y` |
+| Shape redeclaration | `Cannot redeclare shape X` |
+| `::shape` used on a class | `Cannot use ::shape on class X, use ::class instead` |
+| `::class` used on a shape | `Cannot use ::class on shape X, use ::shape instead` |
+
+These compile-time checks ensure that shape inheritance and naming syntax are used correctly, providing immediate feedback during development rather than runtime errors.
 
 ### Compile-Time Optimization
 
@@ -533,8 +636,10 @@ Potential future enhancements (not part of this RFC):
 
 1. **Class property types**: `public User $user;`
 2. **Readonly shapes**: Immutable array structures
-3. **Shape inheritance**: `shape Admin extends User`
-4. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
+3. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
+
+**Note:** Shape inheritance (`shape Admin extends User`) and the `::shape` syntax
+are now implemented and documented above.
 
 ## Examples
 

@@ -362,6 +362,135 @@ index 16914a71..612fab16 100644
      private function x2() {}
      function buggy(){
          $c = get_class($this);
+diff --git a/Zend/tests/type_declarations/array_shapes/callable_in_shape.phpt b/Zend/tests/type_declarations/array_shapes/callable_in_shape.phpt
+new file mode 100644
+index 00000000..6fa8a061
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/callable_in_shape.phpt
+@@ -0,0 +1,79 @@
++--TEST--
++Callable type in array shapes
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Basic callable in shape
++function processWithCallback(array{data: array<int>, callback: callable} $config): array<int> {
++    return array_map($config['callback'], $config['data']);
++}
++
++$result = processWithCallback([
++    'data' => [1, 2, 3],
++    'callback' => fn($x) => $x * 2
++]);
++echo "Doubled: ";
++print_r($result);
++
++// Test 2: Callable as closure
++function executeHandler(array{name: string, handler: callable} $action): string {
++    return $action['handler']($action['name']);
++}
++
++$greeting = executeHandler([
++    'name' => 'World',
++    'handler' => fn($name) => "Hello, $name!"
++]);
++echo "$greeting\n";
++
++// Test 3: Callable as function name
++function myUppercase(string $s): string {
++    return strtoupper($s);
++}
++
++$result = executeHandler([
++    'name' => 'test',
++    'handler' => 'myUppercase'
++]);
++echo "$result\n";
++
++// Test 4: Callable as static method reference
++class StringUtils {
++    public static function reverse(string $s): string {
++        return strrev($s);
++    }
++}
++
++$result = executeHandler([
++    'name' => 'hello',
++    'handler' => [StringUtils::class, 'reverse']
++]);
++echo "$result\n";
++
++// Test 5: Optional callable
++function maybeProcess(array{value: int, transformer?: callable} $data): int {
++    if (isset($data['transformer'])) {
++        return $data['transformer']($data['value']);
++    }
++    return $data['value'];
++}
++
++echo "Without transformer: " . maybeProcess(['value' => 5]) . "\n";
++echo "With transformer: " . maybeProcess(['value' => 5, 'transformer' => fn($x) => $x * 10]) . "\n";
++
++echo "Done\n";
++?>
++--EXPECT--
++Doubled: Array
++(
++    [0] => 2
++    [1] => 4
++    [2] => 6
++)
++Hello, World!
++TEST
++olleh
++Without transformer: 5
++With transformer: 50
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/callable_in_shape_error.phpt b/Zend/tests/type_declarations/array_shapes/callable_in_shape_error.phpt
+new file mode 100644
+index 00000000..5fc6ecaa
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/callable_in_shape_error.phpt
+@@ -0,0 +1,38 @@
++--TEST--
++Callable type in array shapes - type error
++--XLEAK--
++--FILE--
++<?php
++
++function processWithCallback(array{callback: callable} $config): void {
++    ($config['callback'])();
++}
++
++// Test 1: Non-callable value
++try {
++    processWithCallback(['callback' => 'not_a_real_function']);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++// Test 2: Integer instead of callable
++try {
++    processWithCallback(['callback' => 123]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++// Test 3: Array that's not a valid callable
++try {
++    processWithCallback(['callback' => ['NotAClass', 'notAMethod']]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++echo "Done\n";
++?>
++--EXPECTF--
++TypeError: processWithCallback(): Argument #1 ($config) must be of type array{callback: callable, ...}, array key "callback" is string
++TypeError: processWithCallback(): Argument #1 ($config) must be of type array{callback: callable, ...}, array key "callback" is int
++TypeError: processWithCallback(): Argument #1 ($config) must be of type array{callback: callable, ...}, array key "callback" is array
++Done
 diff --git a/Zend/tests/type_declarations/array_shapes/class_cannot_extend_shape.phpt b/Zend/tests/type_declarations/array_shapes/class_cannot_extend_shape.phpt
 new file mode 100644
 index 00000000..74898cf6
@@ -489,6 +618,294 @@ index 00000000..5163dc52
 +--EXPECTF--
 +Processing user: Alice
 +processUser(): Argument #1 ($user) must be of type closed shape, unexpected extra key "extra"%A
+diff --git a/Zend/tests/type_declarations/array_shapes/closure_in_shape.phpt b/Zend/tests/type_declarations/array_shapes/closure_in_shape.phpt
+new file mode 100644
+index 00000000..21a2faa4
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/closure_in_shape.phpt
+@@ -0,0 +1,56 @@
++--TEST--
++Closure type in array shapes
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Closure type in shape (more specific than callable)
++function processWithClosure(array{handler: Closure} $config): mixed {
++    return $config['handler']();
++}
++
++$result = processWithClosure([
++    'handler' => fn() => 'Hello from closure'
++]);
++echo "$result\n";
++
++// Test 2: Closure with use()
++$multiplier = 3;
++$result = processWithClosure([
++    'handler' => function() use ($multiplier) {
++        return 10 * $multiplier;
++    }
++]);
++echo "Result: $result\n";
++
++// Test 3: Array of closures
++function runAll(array{tasks: array<Closure>} $config): array<mixed> {
++    $results = [];
++    foreach ($config['tasks'] as $task) {
++        $results[] = $task();
++    }
++    return $results;
++}
++
++$results = runAll([
++    'tasks' => [
++        fn() => 1,
++        fn() => 2,
++        fn() => 3,
++    ]
++]);
++echo "Tasks results: ";
++print_r($results);
++
++echo "Done\n";
++?>
++--EXPECT--
++Hello from closure
++Result: 30
++Tasks results: Array
++(
++    [0] => 1
++    [1] => 2
++    [2] => 3
++)
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/closure_in_shape_error.phpt b/Zend/tests/type_declarations/array_shapes/closure_in_shape_error.phpt
+new file mode 100644
+index 00000000..bf106c51
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/closure_in_shape_error.phpt
+@@ -0,0 +1,54 @@
++--TEST--
++Closure type in array shapes - type error (callable but not Closure)
++--XLEAK--
++--FILE--
++<?php
++
++function processWithClosure(array{handler: Closure} $config): mixed {
++    return $config['handler']();
++}
++
++// Test 1: Function name string (callable but not Closure)
++function myFunc(): string {
++    return 'hello';
++}
++
++try {
++    processWithClosure(['handler' => 'myFunc']);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++// Test 2: Static method array (callable but not Closure)
++class Helper {
++    public static function run(): string {
++        return 'helper';
++    }
++}
++
++try {
++    processWithClosure(['handler' => [Helper::class, 'run']]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++// Test 3: Invokable object (callable but not Closure)
++class Invokable {
++    public function __invoke(): string {
++        return 'invoked';
++    }
++}
++
++try {
++    processWithClosure(['handler' => new Invokable()]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++echo "Done\n";
++?>
++--EXPECTF--
++TypeError: processWithClosure(): Argument #1 ($config) must be of type array{handler: Closure, ...}, array key "handler" is string
++TypeError: processWithClosure(): Argument #1 ($config) must be of type array{handler: Closure, ...}, array key "handler" is array
++TypeError: processWithClosure(): Argument #1 ($config) must be of type array{handler: Closure, ...}, array key "handler" is Invokable
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/interface_covariance.phpt b/Zend/tests/type_declarations/array_shapes/interface_covariance.phpt
+new file mode 100644
+index 00000000..34ead6fd
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/interface_covariance.phpt
+@@ -0,0 +1,64 @@
++--TEST--
++Interface implementation with covariant array shape return types
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Implementation returns more specific shape (valid covariance)
++interface BaseDataProvider {
++    public function getData(): array{id: int};
++}
++
++class ExtendedDataProvider implements BaseDataProvider {
++    // Returns more specific type - adds extra fields (covariant)
++    public function getData(): array{id: int, name: string, email: string} {
++        return ['id' => 1, 'name' => 'Test', 'email' => 'test@example.com'];
++    }
++}
++
++$provider = new ExtendedDataProvider();
++$data = $provider->getData();
++echo "Got data with id={$data['id']}, name={$data['name']}\n";
++
++// Test 2: Child class narrows parent's interface implementation
++interface ConfigProvider {
++    public function getConfig(): array{debug: bool, options?: array<string>};
++}
++
++class ProductionConfig implements ConfigProvider {
++    public function getConfig(): array{debug: bool, options: array<string>} {
++        // Makes optional field required (valid narrowing)
++        return ['debug' => false, 'options' => ['cache', 'minify']];
++    }
++}
++
++$config = new ProductionConfig();
++$cfg = $config->getConfig();
++echo "Debug: " . ($cfg['debug'] ? 'yes' : 'no') . ", Options: " . count($cfg['options']) . "\n";
++
++// Test 3: Abstract class with shape, concrete implementation
++abstract class AbstractRepository {
++    abstract public function find(int $id): array{id: int, created_at: string};
++}
++
++class ConcreteRepository extends AbstractRepository {
++    public function find(int $id): array{id: int, created_at: string, updated_at: string} {
++        return [
++            'id' => $id,
++            'created_at' => '2024-01-01',
++            'updated_at' => '2024-06-15'
++        ];
++    }
++}
++
++$repo = new ConcreteRepository();
++$item = $repo->find(5);
++echo "Item {$item['id']} created: {$item['created_at']}\n";
++
++echo "Done\n";
++?>
++--EXPECT--
++Got data with id=1, name=Test
++Debug: no, Options: 2
++Item 5 created: 2024-01-01
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/interface_with_shapes.phpt b/Zend/tests/type_declarations/array_shapes/interface_with_shapes.phpt
+new file mode 100644
+index 00000000..b4814ae6
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/interface_with_shapes.phpt
+@@ -0,0 +1,90 @@
++--TEST--
++Interfaces with array shape return types
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Interface method with array shape return type
++interface UserRepositoryInterface {
++    public function findById(int $id): array{id: int, name: string, email: string};
++    public function findAll(): array<array{id: int, name: string}>;
++}
++
++class InMemoryUserRepository implements UserRepositoryInterface {
++    private array $users = [];
++
++    public function __construct() {
++        $this->users = [
++            1 => ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'],
++            2 => ['id' => 2, 'name' => 'Bob', 'email' => 'bob@example.com'],
++        ];
++    }
++
++    public function findById(int $id): array{id: int, name: string, email: string} {
++        return $this->users[$id];
++    }
++
++    public function findAll(): array<array{id: int, name: string}> {
++        return array_values($this->users);
++    }
++}
++
++$repo = new InMemoryUserRepository();
++$user = $repo->findById(1);
++echo "User: {$user['name']} <{$user['email']}>\n";
++
++$all = $repo->findAll();
++echo "Total users: " . count($all) . "\n";
++
++// Test 2: Interface with typed array parameter
++interface DataProcessorInterface {
++    public function process(array<int> $data): int;
++}
++
++class SumProcessor implements DataProcessorInterface {
++    public function process(array<int> $data): int {
++        return array_sum($data);
++    }
++}
++
++$processor = new SumProcessor();
++echo "Sum: " . $processor->process([1, 2, 3, 4, 5]) . "\n";
++
++// Test 3: Multiple interfaces with shapes
++interface Identifiable {
++    public function getIdentity(): array{id: int, type: string};
++}
++
++interface Describable {
++    public function describe(): array{title: string, description: string};
++}
++
++class Product implements Identifiable, Describable {
++    public function __construct(
++        private int $id,
++        private string $name,
++        private string $desc
++    ) {}
++
++    public function getIdentity(): array{id: int, type: string} {
++        return ['id' => $this->id, 'type' => 'product'];
++    }
++
++    public function describe(): array{title: string, description: string} {
++        return ['title' => $this->name, 'description' => $this->desc];
++    }
++}
++
++$product = new Product(42, 'Widget', 'A useful widget');
++$identity = $product->getIdentity();
++$desc = $product->describe();
++echo "Product #{$identity['id']} ({$identity['type']}): {$desc['title']}\n";
++
++echo "Done\n";
++?>
++--EXPECT--
++User: Alice <alice@example.com>
++Total users: 2
++Sum: 15
++Product #42 (product): Widget
++Done
 diff --git a/Zend/tests/type_declarations/array_shapes/open_shape_extra_keys.phpt b/Zend/tests/type_declarations/array_shapes/open_shape_extra_keys.phpt
 new file mode 100644
 index 00000000..c915464e
@@ -542,6 +959,124 @@ index 84c2e0b1..28bbadde 100644
  
  function processPoint(array{x: int, y: int} $point): int {
      return $point['x'] + $point['y'];
+diff --git a/Zend/tests/type_declarations/array_shapes/param_contravariance.phpt b/Zend/tests/type_declarations/array_shapes/param_contravariance.phpt
+new file mode 100644
+index 00000000..fee1a787
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_contravariance.phpt
+@@ -0,0 +1,85 @@
++--TEST--
++Parameter contravariance with array shapes - child accepts wider types
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Child class accepts wider array shape (fewer required fields)
++class BaseProcessor {
++    public function process(array{id: int, name: string, email: string} $data): void {
++        echo "Base processing: {$data['id']}\n";
++    }
++}
++
++class FlexibleProcessor extends BaseProcessor {
++    // Contravariant: accepts wider type (fewer required fields)
++    public function process(array{id: int} $data): void {
++        echo "Flexible processing: {$data['id']}\n";
++    }
++}
++
++$processor = new FlexibleProcessor();
++$processor->process(['id' => 1, 'name' => 'Test', 'email' => 'test@test.com']);
++$processor->process(['id' => 2]); // Would fail on parent, works on child
++
++// Test 2: Interface implementation with wider parameter type
++interface StrictHandler {
++    public function handle(array{action: string, payload: array{id: int}} $request): void;
++}
++
++class LenientHandler implements StrictHandler {
++    // Accepts wider type - payload only needs to be an array
++    public function handle(array{action: string, payload: array} $request): void {
++        echo "Handling action: {$request['action']}\n";
++    }
++}
++
++$handler = new LenientHandler();
++$handler->handle(['action' => 'create', 'payload' => ['id' => 1]]);
++$handler->handle(['action' => 'update', 'payload' => ['any' => 'data']]);
++
++// Test 3: Abstract class with contravariant parameter
++abstract class AbstractValidator {
++    abstract public function validate(array{name: string, age: int, email: string} $data): bool;
++}
++
++class SimpleValidator extends AbstractValidator {
++    // Accepts any array - widest possible type
++    public function validate(array $data): bool {
++        echo "Validating data with " . count($data) . " fields\n";
++        return true;
++    }
++}
++
++$validator = new SimpleValidator();
++$validator->validate(['name' => 'John']);
++$validator->validate(['name' => 'Jane', 'age' => 30, 'email' => 'jane@example.com', 'extra' => 'field']);
++
++// Test 4: Typed array contravariance - child accepts any array
++class TypedArrayProcessor {
++    public function sum(array<int> $numbers): int {
++        return array_sum($numbers);
++    }
++}
++
++class AnyArrayProcessor extends TypedArrayProcessor {
++    // Accepts any array (contravariant)
++    public function sum(array $numbers): int {
++        return array_sum($numbers);
++    }
++}
++
++$anyProcessor = new AnyArrayProcessor();
++echo "Sum: " . $anyProcessor->sum([1, 2, 3]) . "\n";
++
++echo "Done\n";
++?>
++--EXPECT--
++Flexible processing: 1
++Flexible processing: 2
++Handling action: create
++Handling action: update
++Validating data with 1 fields
++Validating data with 4 fields
++Sum: 6
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/param_contravariance_error.phpt b/Zend/tests/type_declarations/array_shapes/param_contravariance_error.phpt
+new file mode 100644
+index 00000000..6c744813
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/param_contravariance_error.phpt
+@@ -0,0 +1,21 @@
++--TEST--
++Parameter contravariance violation - child cannot accept narrower type
++--FILE--
++<?php
++
++// Child tries to require MORE fields than parent (invalid - narrower type)
++class BaseHandler {
++    public function handle(array{id: int} $data): void {
++        echo "Handled\n";
++    }
++}
++
++class StrictHandler extends BaseHandler {
++    // INVALID: requires more fields than parent (narrower type)
++    public function handle(array{id: int, name: string, email: string} $data): void {
++        echo "Strictly handled\n";
++    }
++}
++?>
++--EXPECTF--
++Fatal error: Declaration of StrictHandler::handle(array{id: int, name: string, email: string} $data): void must be compatible with BaseHandler::handle(array{id: int} $data): void in %s on line %d
 diff --git a/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt b/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
 index 8dbe8bad..45673817 100644
 --- a/Zend/tests/type_declarations/array_shapes/param_missing_key.phpt
@@ -642,6 +1177,33 @@ index 99e61988..a346d6ed 100644
  
  function getPoint(): array{x: int, y: int} {
      return ['x' => 10, 'y' => 20];
+diff --git a/Zend/tests/type_declarations/array_shapes/return_covariance_error.phpt b/Zend/tests/type_declarations/array_shapes/return_covariance_error.phpt
+new file mode 100644
+index 00000000..2c1da692
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/return_covariance_error.phpt
+@@ -0,0 +1,21 @@
++--TEST--
++Return type covariance violation - child cannot return wider type
++--FILE--
++<?php
++
++// Child tries to return FEWER fields than parent (invalid - wider type)
++class BaseProvider {
++    public function getData(): array{id: int, name: string, email: string} {
++        return ['id' => 1, 'name' => 'Test', 'email' => 'test@test.com'];
++    }
++}
++
++class LooseProvider extends BaseProvider {
++    // INVALID: returns fewer required fields (wider type)
++    public function getData(): array{id: int} {
++        return ['id' => 1];
++    }
++}
++?>
++--EXPECTF--
++Fatal error: Declaration of LooseProvider::getData(): array{id: int} must be compatible with BaseProvider::getData(): array{id: int, name: string, email: string} in %s on line %d
 diff --git a/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt b/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
 index 0134821d..996382a1 100644
 --- a/Zend/tests/type_declarations/array_shapes/return_missing_key.phpt
@@ -1387,6 +1949,216 @@ index 00000000..3fa8d10d
 +--EXPECT--
 +Order #42 - $12.99
 +Items: apple, banana, orange
+diff --git a/Zend/tests/type_declarations/array_shapes/spread_operator_typed_array.phpt b/Zend/tests/type_declarations/array_shapes/spread_operator_typed_array.phpt
+new file mode 100644
+index 00000000..88f92d60
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/spread_operator_typed_array.phpt
+@@ -0,0 +1,57 @@
++--TEST--
++Spread operator with typed arrays
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Basic spread with typed array
++function getNumbers(): array<int> {
++    return [1, 2, 3];
++}
++
++$numbers = getNumbers();
++$combined = [0, ...$numbers, 4, 5];
++echo "Combined: ";
++print_r($combined);
++
++// Test 2: Spread typed array into function accepting typed array
++function sumAll(array<int> $nums): int {
++    return array_sum($nums);
++}
++
++$base = [10, 20];
++$more = [30, 40];
++echo "Sum: " . sumAll([...$base, ...$more]) . "\n";
++
++// Test 3: Spread in array shape context
++function processData(array{items: array<int>} $data): int {
++    return array_sum($data['items']);
++}
++
++$items = [1, 2, 3];
++$result = processData(['items' => [...$items, 4, 5]]);
++echo "Processed: $result\n";
++
++// Test 4: Multiple spreads
++$a = [1, 2];
++$b = [3, 4];
++$c = [5, 6];
++$all = [...$a, ...$b, ...$c];
++echo "All count: " . count($all) . "\n";
++
++echo "Done\n";
++?>
++--EXPECT--
++Combined: Array
++(
++    [0] => 0
++    [1] => 1
++    [2] => 2
++    [3] => 3
++    [4] => 4
++    [5] => 5
++)
++Sum: 100
++Processed: 15
++All count: 6
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/spread_operator_typed_array_error.phpt b/Zend/tests/type_declarations/array_shapes/spread_operator_typed_array_error.phpt
+new file mode 100644
+index 00000000..348e60cb
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/spread_operator_typed_array_error.phpt
+@@ -0,0 +1,34 @@
++--TEST--
++Spread operator with typed arrays - type error
++--XLEAK--
++--FILE--
++<?php
++
++// Test: Spreading array with wrong types into typed array parameter
++function acceptInts(array<int> $numbers): int {
++    return array_sum($numbers);
++}
++
++$mixed = [1, 2, 'three', 4];
++
++try {
++    acceptInts([...$mixed]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++// Test 2: Spread creates type mismatch
++$strings = ['a', 'b', 'c'];
++
++try {
++    acceptInts([...$strings]);
++} catch (TypeError $e) {
++    echo "TypeError: " . $e->getMessage() . "\n";
++}
++
++echo "Done\n";
++?>
++--EXPECT--
++TypeError: acceptInts(): Argument #1 ($numbers) must be of type array<int>, array element at index 2 is string
++TypeError: acceptInts(): Argument #1 ($numbers) must be of type array<int>, array element at index 0 is string
++Done
+diff --git a/Zend/tests/type_declarations/array_shapes/trait_with_shapes.phpt b/Zend/tests/type_declarations/array_shapes/trait_with_shapes.phpt
+new file mode 100644
+index 00000000..ac5c561a
+--- /dev/null
++++ b/Zend/tests/type_declarations/array_shapes/trait_with_shapes.phpt
+@@ -0,0 +1,101 @@
++--TEST--
++Traits with array shape types
++--XLEAK--
++--FILE--
++<?php
++
++// Test 1: Basic trait with array shape return type
++trait Timestampable {
++    public function getTimestamps(): array{created_at: string, updated_at: string} {
++        return [
++            'created_at' => '2024-01-01 00:00:00',
++            'updated_at' => '2024-06-15 12:30:00'
++        ];
++    }
++}
++
++class Article {
++    use Timestampable;
++
++    public function __construct(public string $title) {}
++}
++
++$article = new Article('Hello World');
++$times = $article->getTimestamps();
++echo "Article created: {$times['created_at']}\n";
++
++// Test 2: Trait with typed array parameter
++trait Taggable {
++    private array $tags = [];
++
++    public function setTags(array<string> $tags): void {
++        $this->tags = $tags;
++    }
++
++    public function getTags(): array<string> {
++        return $this->tags;
++    }
++}
++
++class Post {
++    use Taggable;
++
++    public function __construct(public string $content) {}
++}
++
++$post = new Post('My post content');
++$post->setTags(['php', 'rfc', 'array-shapes']);
++echo "Tags: " . implode(', ', $post->getTags()) . "\n";
++
++// Test 3: Multiple traits with shapes
++trait HasMetadata {
++    public function getMetadata(): array{version: int, author: string} {
++        return ['version' => 1, 'author' => 'System'];
++    }
++}
++
++trait HasStatus {
++    public function getStatus(): array{active: bool, status: string} {
++        return ['active' => true, 'status' => 'published'];
++    }
++}
++
++class Document {
++    use HasMetadata, HasStatus;
++
++    public function getFullInfo(): array{version: int, author: string, active: bool, status: string} {
++        return [...$this->getMetadata(), ...$this->getStatus()];
++    }
++}
++
++$doc = new Document();
++$info = $doc->getFullInfo();
++echo "Doc v{$info['version']} by {$info['author']}: {$info['status']}\n";
++
++// Test 4: Trait method with array shape in class implementing interface
++interface Configurable {
++    public function getConfig(): array{enabled: bool};
++}
++
++trait DefaultConfig {
++    public function getConfig(): array{enabled: bool, timeout: int} {
++        return ['enabled' => true, 'timeout' => 30];
++    }
++}
++
++class Service implements Configurable {
++    use DefaultConfig;
++}
++
++$service = new Service();
++$config = $service->getConfig();
++echo "Service enabled: " . ($config['enabled'] ? 'yes' : 'no') . ", timeout: {$config['timeout']}\n";
++
++echo "Done\n";
++?>
++--EXPECT--
++Article created: 2024-01-01 00:00:00
++Tags: php, rfc, array-shapes
++Doc v1 by System: published
++Service enabled: yes, timeout: 30
++Done
 diff --git a/Zend/tests/typed_arrays/abstract_class_typed_array.phpt b/Zend/tests/typed_arrays/abstract_class_typed_array.phpt
 new file mode 100644
 index 00000000..b1ec3a25
@@ -5457,6 +6229,140 @@ index 0111c64d..b2bf43f1 100644
  extern ZEND_API const HashTable zend_empty_array;
  
  #define ZVAL_EMPTY_ARRAY(z) do {						\
+diff --git a/Zend/zend_inheritance.c b/Zend/zend_inheritance.c
+index 89e51cb7..4d19f2ff 100644
+--- a/Zend/zend_inheritance.c
++++ b/Zend/zend_inheritance.c
+@@ -66,6 +66,11 @@ static void ZEND_COLD emit_incompatible_method_error(
+ 
+ static void zend_type_copy_ctor(zend_type *const type, bool use_arena, bool persistent);
+ 
++/* Forward declaration for recursive calls */
++ZEND_API inheritance_status zend_perform_covariant_type_check(
++	zend_class_entry *fe_scope, const zend_type fe_type,
++	zend_class_entry *proto_scope, const zend_type proto_type);
++
+ static void zend_type_list_copy_ctor(
+ 	zend_type *const parent_type,
+ 	bool use_arena,
+@@ -671,6 +676,100 @@ static inheritance_status zend_is_intersection_subtype_of_type(
+ 	return early_exit_status == INHERITANCE_ERROR ? INHERITANCE_SUCCESS : INHERITANCE_ERROR;
+ }
+ 
++/* Check if child array shape is covariant to parent array shape.
++ * For covariance (return types):
++ *   - Child must have ALL required fields from parent
++ *   - Child's field types must be covariant to parent's field types
++ *   - Child can have additional fields (makes it more specific/narrower)
++ *   - Child can make optional fields required (narrowing)
++ * Returns INHERITANCE_SUCCESS if child is covariant to parent. */
++static inheritance_status zend_array_shape_covariant_check(
++	zend_class_entry *fe_scope, const zend_type fe_type,
++	zend_class_entry *proto_scope, const zend_type proto_type)
++{
++	/* Both must be array shapes for this check */
++	if (!ZEND_TYPE_HAS_ARRAY_SHAPE(fe_type) || !ZEND_TYPE_HAS_ARRAY_SHAPE(proto_type)) {
++		/* If parent has array shape but child doesn't, child is wider (not covariant) */
++		if (ZEND_TYPE_HAS_ARRAY_SHAPE(proto_type) && !ZEND_TYPE_HAS_ARRAY_SHAPE(fe_type)) {
++			return INHERITANCE_ERROR;
++		}
++		/* If child has array shape but parent doesn't (plain array), child is narrower (covariant) */
++		if (ZEND_TYPE_HAS_ARRAY_SHAPE(fe_type) && !ZEND_TYPE_HAS_ARRAY_SHAPE(proto_type)) {
++			return INHERITANCE_SUCCESS;
++		}
++		/* Neither has array shape - fall through to normal checking */
++		return INHERITANCE_SUCCESS;
++	}
++
++	zend_array_shape *fe_shape = ZEND_ARRAY_SHAPE(fe_type);
++	zend_array_shape *proto_shape = ZEND_ARRAY_SHAPE(proto_type);
++
++	/* Build hash table of child keys for O(1) lookup */
++	HashTable fe_key_index;
++	zend_hash_init(&fe_key_index, fe_shape->num_elements, NULL, NULL, 0);
++	for (uint32_t i = 0; i < fe_shape->num_elements; i++) {
++		zend_hash_add_ptr(&fe_key_index, fe_shape->elements[i].key, (void *)(uintptr_t)i);
++	}
++
++	inheritance_status status = INHERITANCE_SUCCESS;
++
++	/* Check each parent field */
++	for (uint32_t i = 0; i < proto_shape->num_elements; i++) {
++		zend_string *key = proto_shape->elements[i].key;
++		bool parent_required = !proto_shape->elements[i].is_optional;
++
++		void *fe_idx_ptr = zend_hash_find_ptr(&fe_key_index, key);
++
++		if (fe_idx_ptr == NULL) {
++			/* Child doesn't have this field */
++			if (parent_required) {
++				/* Parent has required field that child lacks - child is wider (not covariant) */
++				status = INHERITANCE_ERROR;
++				break;
++			}
++			/* Parent's optional field missing in child is okay for covariance
++			 * (child is more specific by not having it, but this makes it non-substitutable)
++			 * Actually for strict covariance, child should have all parent fields.
++			 * Let's require child to have all parent fields for proper LSP. */
++			status = INHERITANCE_ERROR;
++			break;
++		}
++
++		uint32_t fe_idx = (uint32_t)(uintptr_t)fe_idx_ptr;
++		bool child_required = !fe_shape->elements[fe_idx].is_optional;
++
++		/* Child making parent's required field optional is invalid (widening) */
++		if (parent_required && !child_required) {
++			status = INHERITANCE_ERROR;
++			break;
++		}
++
++		/* Check type covariance for this field */
++		zend_type fe_field_type = fe_shape->elements[fe_idx].type;
++		zend_type proto_field_type = proto_shape->elements[i].type;
++
++		if (ZEND_TYPE_IS_SET(proto_field_type)) {
++			if (!ZEND_TYPE_IS_SET(fe_field_type)) {
++				/* Parent has typed field, child doesn't - widening */
++				status = INHERITANCE_ERROR;
++				break;
++			}
++
++			/* Recursively check covariance of field types */
++			inheritance_status field_status = zend_perform_covariant_type_check(
++				fe_scope, fe_field_type, proto_scope, proto_field_type);
++
++			if (field_status != INHERITANCE_SUCCESS) {
++				status = field_status;
++				break;
++			}
++		}
++	}
++
++	zend_hash_destroy(&fe_key_index);
++	return status;
++}
++
+ ZEND_API inheritance_status zend_perform_covariant_type_check(
+ 		zend_class_entry *fe_scope, const zend_type fe_type,
+ 		zend_class_entry *proto_scope, const zend_type proto_type)
+@@ -706,6 +805,16 @@ ZEND_API inheritance_status zend_perform_covariant_type_check(
+ 		}
+ 	}
+ 
++	/* Check array shape covariance if both types involve arrays */
++	if ((fe_type_mask & MAY_BE_ARRAY) && (proto_type_mask & MAY_BE_ARRAY)) {
++		/* Check array shape structure covariance */
++		inheritance_status shape_status = zend_array_shape_covariant_check(
++			fe_scope, fe_type, proto_scope, proto_type);
++		if (shape_status != INHERITANCE_SUCCESS) {
++			return shape_status;
++		}
++	}
++
+ 	inheritance_status early_exit_status;
+ 	bool have_unresolved = false;
+ 
 diff --git a/Zend/zend_language_parser.y b/Zend/zend_language_parser.y
 index 219c9329..161f4d10 100644
 --- a/Zend/zend_language_parser.y

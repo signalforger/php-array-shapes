@@ -4693,7 +4693,7 @@ index c07fa9bf..742c9ead 100644
  	(EG(current_execute_data)->prev_execute_data && \
  	 EG(current_execute_data)->prev_execute_data->func && \
 diff --git a/Zend/zend_execute.c b/Zend/zend_execute.c
-index 5665cc0c..d1f7a705 100644
+index 5665cc0c..cbd8c36c 100644
 --- a/Zend/zend_execute.c
 +++ b/Zend/zend_execute.c
 @@ -1068,6 +1068,9 @@ ZEND_API bool zend_never_inline zend_verify_property_type(const zend_property_in
@@ -4756,7 +4756,7 @@ index 5665cc0c..d1f7a705 100644
  	if (ZEND_TYPE_IS_COMPLEX(*type) && EXPECTED(Z_TYPE_P(arg) == IS_OBJECT)) {
  		zend_class_entry *ce;
  		if (UNEXPECTED(ZEND_TYPE_HAS_LIST(*type))) {
-@@ -1434,6 +1466,1255 @@ ZEND_API ZEND_COLD void zend_verify_return_error(const zend_function *zf, const
+@@ -1434,6 +1466,1260 @@ ZEND_API ZEND_COLD void zend_verify_return_error(const zend_function *zf, const
  	zend_string_release(need_msg);
  }
  
@@ -5293,7 +5293,8 @@ index 5665cc0c..d1f7a705 100644
 +	return -1;
 +}
 +
-+/* Thread-local recursion depth counter for nested array validation */
++/* Thread-local recursion depth counter for nested array validation.
++ * Protected by zend_try/zend_catch to ensure cleanup on exceptions/bailout. */
 +ZEND_TLS int zend_typed_array_recursion_depth = 0;
 +
 +static zend_always_inline bool zend_verify_array_elements_union(HashTable *ht, const zend_type *element_type)
@@ -5328,21 +5329,28 @@ index 5665cc0c..d1f7a705 100644
 +		return true;
 +	}
 +
++	/* Track recursion depth with exception-safe cleanup */
 +	zend_typed_array_recursion_depth++;
-+
-+	zval *inner_val;
 +	bool result = true;
-+	ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(val), inner_val) {
-+		if (ZEND_TYPE_HAS_ARRAY_ELEMENT(elem_type->element_type)) {
-+			if (!zend_verify_nested_array_type(inner_val, &elem_type->element_type)) {
++
++	zend_try {
++		zval *inner_val;
++		ZEND_HASH_FOREACH_VAL(Z_ARRVAL_P(val), inner_val) {
++			if (ZEND_TYPE_HAS_ARRAY_ELEMENT(elem_type->element_type)) {
++				if (!zend_verify_nested_array_type(inner_val, &elem_type->element_type)) {
++					result = false;
++					break;
++				}
++			} else if (!zend_check_type(&elem_type->element_type, inner_val, NULL, 0, 0)) {
 +				result = false;
 +				break;
 +			}
-+		} else if (!zend_check_type(&elem_type->element_type, inner_val, NULL, 0, 0)) {
-+			result = false;
-+			break;
-+		}
-+	} ZEND_HASH_FOREACH_END();
++		} ZEND_HASH_FOREACH_END();
++	} zend_catch {
++		/* Exception/bailout occurred - decrement and re-throw */
++		zend_typed_array_recursion_depth--;
++		zend_bailout();
++	} zend_end_try();
 +
 +	zend_typed_array_recursion_depth--;
 +	return result;
@@ -5922,11 +5930,7 @@ index 5665cc0c..d1f7a705 100644
 +/* ZEND_SHAPE_MAX_RECURSION_DEPTH is defined in zend_compile.h */
 +
 +/* Thread-local recursion depth counter for shape validation.
-+ * SAFETY: This counter is incremented before validation and decremented after.
-+ * The code between increment and decrement must NOT throw exceptions or longjmp.
-+ * Currently safe because: zend_check_array_shape, zend_check_type, and hash
-+ * iteration all return values rather than throwing. If future modifications
-+ * add exception-throwing code, use zend_try/zend_catch for cleanup. */
++ * Protected by zend_try/zend_catch to ensure cleanup on exceptions/bailout. */
 +ZEND_TLS int zend_shape_recursion_depth = 0;
 +
 +/* Reset shape recursion depth - called at request startup as defensive measure */
@@ -5964,47 +5968,48 @@ index 5665cc0c..d1f7a705 100644
 +	}
 +
 +	/* Track recursion depth to detect circular references.
-+	 * All code paths after this MUST go through 'done' label to decrement. */
++	 * Use zend_try/zend_catch to ensure decrement even on exception/bailout. */
 +	zend_shape_recursion_depth++;
 +	bool result = false;
 +
-+	/* Use the shape's type for validation */
-+	zend_type shape_type = shape->type;
++	zend_try {
++		/* Use the shape's type for validation */
++		zend_type shape_type = shape->type;
 +
-+	/* Check if it's an array shape type */
-+	if (ZEND_TYPE_HAS_ARRAY_SHAPE(shape_type) && shape_type.ptr != NULL) {
-+		zend_array_shape *shape_def = ZEND_ARRAY_SHAPE(shape_type);
-+		const zend_array_shape_element *failed_elem;
-+		zval *failed_val;
-+		zend_string *extra_key = NULL;
-+		/* Validate the array against the shape definition */
-+		zend_shape_check_result check_result = zend_check_array_shape(
-+			Z_ARRVAL_P(arg), shape_def, &failed_elem, &failed_val, &extra_key);
-+		result = (check_result == SHAPE_OK);
-+		goto done;
-+	}
++		/* Check if it's an array shape type */
++		if (ZEND_TYPE_HAS_ARRAY_SHAPE(shape_type) && shape_type.ptr != NULL) {
++			zend_array_shape *shape_def = ZEND_ARRAY_SHAPE(shape_type);
++			const zend_array_shape_element *failed_elem;
++			zval *failed_val;
++			zend_string *extra_key = NULL;
++			/* Validate the array against the shape definition */
++			zend_shape_check_result check_result = zend_check_array_shape(
++				Z_ARRVAL_P(arg), shape_def, &failed_elem, &failed_val, &extra_key);
++			result = (check_result == SHAPE_OK);
++		}
++		/* Check if it's a typed array */
++		else if (ZEND_TYPE_HAS_ARRAY_ELEMENT(shape_type)) {
++			zend_typed_array_element *elem = ZEND_TYPED_ARRAY_ELEMENT(shape_type);
++			HashTable *ht = Z_ARRVAL_P(arg);
++			zval *val;
++			result = true;
++			ZEND_HASH_FOREACH_VAL(ht, val) {
++				if (!ZEND_TYPE_CONTAINS_CODE(elem->element_type, Z_TYPE_P(val))) {
++					result = false;
++					break;
++				}
++			} ZEND_HASH_FOREACH_END();
++		}
++		/* For simple array type */
++		else if (ZEND_TYPE_PURE_MASK(shape_type) & MAY_BE_ARRAY) {
++			result = true;
++		}
++	} zend_catch {
++		/* Exception/bailout occurred - decrement and re-throw */
++		zend_shape_recursion_depth--;
++		zend_bailout();
++	} zend_end_try();
 +
-+	/* Check if it's a typed array */
-+	if (ZEND_TYPE_HAS_ARRAY_ELEMENT(shape_type)) {
-+		zend_typed_array_element *elem = ZEND_TYPED_ARRAY_ELEMENT(shape_type);
-+		HashTable *ht = Z_ARRVAL_P(arg);
-+		zval *val;
-+		result = true;
-+		ZEND_HASH_FOREACH_VAL(ht, val) {
-+			if (!ZEND_TYPE_CONTAINS_CODE(elem->element_type, Z_TYPE_P(val))) {
-+				result = false;
-+				break;
-+			}
-+		} ZEND_HASH_FOREACH_END();
-+		goto done;
-+	}
-+
-+	/* For simple array type */
-+	if (ZEND_TYPE_PURE_MASK(shape_type) & MAY_BE_ARRAY) {
-+		result = true;
-+	}
-+
-+done:
 +	zend_shape_recursion_depth--;
 +	return result;
 +}

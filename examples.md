@@ -31,6 +31,381 @@ This document provides practical examples of using typed arrays and array shapes
   - [Callable Types in Shapes](#callable-types-in-shapes)
   - [Combining Typed Arrays and Shapes](#combining-typed-arrays-and-shapes)
   - [Reflection](#reflection)
+- [Array Shapes and DTOs: Complementary, Not Competing](#array-shapes-and-dtos-complementary-not-competing)
+  - [The Boundary Pattern](#the-boundary-pattern)
+  - [When to Use What](#when-to-use-what)
+  - [Complete Example: API to Domain](#complete-example-api-to-domain)
+
+---
+
+## Array Shapes and DTOs: Complementary, Not Competing
+
+A common question: "Why not just use classes/DTOs?" The answer is that **array shapes and DTOs serve different purposes** and work best together.
+
+**Array shapes validate data at application boundaries** - where external data enters your system. **DTOs encapsulate domain logic** - where your application does its work.
+
+### The Boundary Pattern
+
+Data flows through your application like this:
+
+```
+External World          Boundary              Internal Domain
+─────────────────────────────────────────────────────────────
+                           │
+  Database (PDO)     ──────┼────────>  Domain Objects
+  API Responses      ──────┼────────>  Value Objects
+  JSON Payloads      ──────┼────────>  Entities
+  Webhook Data       ──────┼────────>  DTOs with behavior
+  Config Files       ──────┼────────>  Service Objects
+                           │
+              Array Shapes validate here
+```
+
+At the boundary, you receive **raw arrays** from external sources. Array shapes validate these arrays have the expected structure **before** you trust them.
+
+```php
+<?php
+
+// BOUNDARY: External data enters as arrays
+// Array shapes validate structure at the gate
+
+shape GitHubUserResponse = array{
+    login: string,
+    id: int,
+    avatar_url: string,
+    html_url: string,
+    type: string
+};
+
+function fetchGitHubUser(string $username): GitHubUserResponse {
+    $response = file_get_contents("https://api.github.com/users/$username");
+    $data = json_decode($response, true);
+
+    // Shape validates: if GitHub changes their API or returns
+    // unexpected data, we get a TypeError HERE, not deep in our code
+    return $data;
+}
+
+// INTERNAL: Domain uses proper objects with behavior
+
+class GitHubUser {
+    public function __construct(
+        public readonly string $login,
+        public readonly int $id,
+        public readonly string $avatarUrl,
+        public readonly string $profileUrl,
+        public readonly bool $isOrganization
+    ) {}
+
+    public function getDisplayName(): string {
+        return "@{$this->login}";
+    }
+
+    public function isOrg(): bool {
+        return $this->isOrganization;
+    }
+}
+
+// CONVERSION: Transform validated array to domain object
+
+class GitHubUserFactory {
+    public function fromApi(GitHubUserResponse $data): GitHubUser {
+        return new GitHubUser(
+            login: $data['login'],
+            id: $data['id'],
+            avatarUrl: $data['avatar_url'],
+            profileUrl: $data['html_url'],
+            isOrganization: $data['type'] === 'Organization'
+        );
+    }
+}
+
+// Usage
+$apiData = fetchGitHubUser('php');           // Validated array shape
+$user = $factory->fromApi($apiData);          // Domain object
+echo $user->getDisplayName();                 // "@php"
+```
+
+### When to Use What
+
+| Scenario | Use Array Shape | Use DTO/Class |
+|----------|-----------------|---------------|
+| Receiving database query results | ✓ | |
+| Parsing API responses | ✓ | |
+| Validating JSON payloads | ✓ | |
+| Loading configuration files | ✓ | |
+| Processing webhook data | ✓ | |
+| Domain entities with behavior | | ✓ |
+| Objects with calculated properties | | ✓ |
+| Encapsulating business rules | | ✓ |
+| Internal application state | | ✓ |
+| Data with invariants | | ✓ |
+
+**Key insight**: Arrays are **data**. Objects are **behavior**.
+
+Array shapes give you type safety for data at the edges of your system, where:
+- Data structure is uncertain (external sources)
+- You need validation before trusting the data
+- Creating a DTO adds ceremony without benefit
+- The data is just passing through
+
+DTOs give you encapsulation inside your system, where:
+- You need methods and behavior
+- You have business rules to enforce
+- You want IDE autocomplete on properties
+- The object has a lifecycle
+
+### Complete Example: API to Domain
+
+Here's a realistic example showing the full flow from external API to internal domain:
+
+```php
+<?php
+
+// ============================================================
+// STEP 1: Define shapes for external API responses
+// These validate data AT THE BOUNDARY
+// ============================================================
+
+shape StripeCustomerResponse = array{
+    id: string,
+    object: string,
+    email: string,
+    name: ?string,
+    metadata: array<string, string>,
+    created: int,
+    livemode: bool
+};
+
+shape StripeSubscriptionResponse = array{
+    id: string,
+    customer: string,
+    status: string,
+    current_period_start: int,
+    current_period_end: int,
+    items: array{
+        data: array<array{
+            id: string,
+            price: array{
+                id: string,
+                unit_amount: int,
+                currency: string
+            }
+        }>
+    }
+};
+
+// ============================================================
+// STEP 2: Define domain objects with behavior
+// These encapsulate business logic INSIDE THE APP
+// ============================================================
+
+enum SubscriptionStatus: string {
+    case Active = 'active';
+    case PastDue = 'past_due';
+    case Canceled = 'canceled';
+    case Trialing = 'trialing';
+    case Unpaid = 'unpaid';
+}
+
+class Customer {
+    public function __construct(
+        public readonly string $id,
+        public readonly string $email,
+        public readonly ?string $name,
+        public readonly DateTimeImmutable $createdAt,
+        private array $subscriptions = []
+    ) {}
+
+    public function getDisplayName(): string {
+        return $this->name ?? $this->email;
+    }
+
+    public function hasActiveSubscription(): bool {
+        foreach ($this->subscriptions as $sub) {
+            if ($sub->isActive()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public function addSubscription(Subscription $sub): void {
+        $this->subscriptions[] = $sub;
+    }
+
+    public function getMonthlySpend(): Money {
+        $total = 0;
+        foreach ($this->subscriptions as $sub) {
+            if ($sub->isActive()) {
+                $total += $sub->getMonthlyAmount()->cents;
+            }
+        }
+        return new Money($total, 'usd');
+    }
+}
+
+class Subscription {
+    public function __construct(
+        public readonly string $id,
+        public readonly string $customerId,
+        public readonly SubscriptionStatus $status,
+        public readonly DateTimeImmutable $periodStart,
+        public readonly DateTimeImmutable $periodEnd,
+        public readonly Money $monthlyAmount
+    ) {}
+
+    public function isActive(): bool {
+        return $this->status === SubscriptionStatus::Active
+            || $this->status === SubscriptionStatus::Trialing;
+    }
+
+    public function daysRemaining(): int {
+        $now = new DateTimeImmutable();
+        return max(0, $this->periodEnd->diff($now)->days);
+    }
+
+    public function getMonthlyAmount(): Money {
+        return $this->monthlyAmount;
+    }
+}
+
+class Money {
+    public function __construct(
+        public readonly int $cents,
+        public readonly string $currency
+    ) {}
+
+    public function format(): string {
+        return sprintf('$%.2f %s', $this->cents / 100, strtoupper($this->currency));
+    }
+}
+
+// ============================================================
+// STEP 3: Gateway handles API calls, returns validated shapes
+// Shapes catch API changes/errors at the boundary
+// ============================================================
+
+class StripeGateway {
+    public function __construct(private string $apiKey) {}
+
+    public function getCustomer(string $id): StripeCustomerResponse {
+        $response = $this->request("GET", "/customers/$id");
+        return json_decode($response, true);  // Validated by shape!
+    }
+
+    public function getSubscription(string $id): StripeSubscriptionResponse {
+        $response = $this->request("GET", "/subscriptions/$id");
+        return json_decode($response, true);  // Validated by shape!
+    }
+
+    private function request(string $method, string $endpoint): string {
+        // HTTP request implementation...
+    }
+}
+
+// ============================================================
+// STEP 4: Factory converts validated shapes to domain objects
+// Clean separation of concerns
+// ============================================================
+
+class StripeCustomerFactory {
+    public function fromResponse(StripeCustomerResponse $data): Customer {
+        return new Customer(
+            id: $data['id'],
+            email: $data['email'],
+            name: $data['name'],
+            createdAt: (new DateTimeImmutable)->setTimestamp($data['created'])
+        );
+    }
+}
+
+class StripeSubscriptionFactory {
+    public function fromResponse(StripeSubscriptionResponse $data): Subscription {
+        $item = $data['items']['data'][0];  // Safe: shape guarantees structure
+
+        return new Subscription(
+            id: $data['id'],
+            customerId: $data['customer'],
+            status: SubscriptionStatus::from($data['status']),
+            periodStart: (new DateTimeImmutable)->setTimestamp($data['current_period_start']),
+            periodEnd: (new DateTimeImmutable)->setTimestamp($data['current_period_end']),
+            monthlyAmount: new Money(
+                cents: $item['price']['unit_amount'],
+                currency: $item['price']['currency']
+            )
+        );
+    }
+}
+
+// ============================================================
+// STEP 5: Service orchestrates everything
+// Works with domain objects, not raw arrays
+// ============================================================
+
+class BillingService {
+    public function __construct(
+        private StripeGateway $gateway,
+        private StripeCustomerFactory $customerFactory,
+        private StripeSubscriptionFactory $subscriptionFactory
+    ) {}
+
+    public function getCustomerWithSubscriptions(string $customerId): Customer {
+        // Gateway returns validated shapes
+        $customerData = $this->gateway->getCustomer($customerId);
+
+        // Factory converts to domain objects
+        $customer = $this->customerFactory->fromResponse($customerData);
+
+        // Now we work with proper objects
+        // If we need subscriptions, we fetch and convert those too
+
+        return $customer;
+    }
+
+    public function sendInvoiceReminder(Customer $customer): void {
+        if (!$customer->hasActiveSubscription()) {
+            return;  // Domain logic using object methods
+        }
+
+        $this->mailer->send(
+            to: $customer->email,
+            subject: "Invoice reminder for {$customer->getDisplayName()}",
+            body: "Your monthly spend is {$customer->getMonthlySpend()->format()}"
+        );
+    }
+}
+
+// ============================================================
+// USAGE: Clean, type-safe flow from API to domain
+// ============================================================
+
+$billing = new BillingService($gateway, $customerFactory, $subscriptionFactory);
+
+// External data validated by shapes at boundary
+// Internal logic uses rich domain objects
+$customer = $billing->getCustomerWithSubscriptions('cus_123');
+
+echo $customer->getDisplayName();           // Method on object
+echo $customer->getMonthlySpend()->format(); // Composed behavior
+
+if ($customer->hasActiveSubscription()) {
+    // Business logic encapsulated in domain objects
+}
+```
+
+**Summary of the pattern:**
+
+1. **Shapes at boundaries** - Validate external data structure (API responses, database rows)
+2. **Factories for conversion** - Transform validated shapes into domain objects
+3. **Domain objects inside** - Encapsulate behavior, enforce invariants
+4. **Services orchestrate** - Coordinate between boundaries and domain
+
+This gives you:
+- **Early validation** - Catch API/schema changes immediately at the boundary
+- **Type safety** - Compiler and runtime both enforce correct data flow
+- **Clean architecture** - Clear separation between external data and internal domain
+- **Testability** - Mock the gateway, test domain objects in isolation
 
 ---
 

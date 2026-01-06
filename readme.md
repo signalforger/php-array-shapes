@@ -1,6 +1,6 @@
 # PHP RFC: Typed Arrays & Array Shapes
 
-* Version: 2.5
+* Version: 2.6
 * Date: 2026-01-06
 * Author: [Signalforger] <signalforger@signalforge.eu>
 * Status: Implemented (Proof of Concept)
@@ -844,9 +844,11 @@ When you change a return type, your API documentation updates automatically beca
 
 ## Variance and Inheritance
 
-Array shape return types follow PHP's standard covariance rules:
+Array shape types follow PHP's standard variance rules for method overrides, enforcing the Liskov Substitution Principle (LSP):
 
-### Covariance (More Specific Return Types Allowed)
+### Return Type Covariance (More Specific Return Types Allowed)
+
+Child classes can return **more specific** (narrower) array shapes:
 
 ```php
 class Repository {
@@ -856,9 +858,65 @@ class Repository {
 }
 
 class ExtendedRepository extends Repository {
-    // Valid: Child returns MORE keys (covariant)
+    // Valid: Child returns MORE keys (covariant - narrower type)
     function getUser(): array{id: int, name: string, email: string} {
         return ['id' => 1, 'name' => 'Alice', 'email' => 'a@b.com'];
+    }
+}
+
+// Invalid: Child returning FEWER keys is a compile error
+class BrokenRepository extends Repository {
+    function getUser(): array{} {  // Fatal error!
+        return [];
+    }
+}
+```
+
+### Parameter Type Contravariance (Wider Parameter Types Allowed)
+
+Child classes can accept **less specific** (wider) array shapes:
+
+```php
+class StrictProcessor {
+    function process(array{id: int, name: string, email: string} $data): void {
+        // Requires all three fields
+    }
+}
+
+class FlexibleProcessor extends StrictProcessor {
+    // Valid: Child accepts FEWER required fields (contravariant - wider type)
+    function process(array{id: int} $data): void {
+        // Only requires id
+    }
+}
+
+// Invalid: Child requiring MORE fields is a compile error
+class BrokenProcessor extends StrictProcessor {
+    function process(array{id: int, name: string, email: string, extra: string} $data): void {
+        // Fatal error! Narrows parameter type
+    }
+}
+```
+
+### Interface Implementation
+
+The same variance rules apply to interface implementations:
+
+```php
+interface UserRepository {
+    function find(int $id): array{id: int, name: string};
+    function save(array{id: int, name: string, email: string} $user): void;
+}
+
+class ExtendedUserRepository implements UserRepository {
+    // Valid: returns more specific type (covariant)
+    function find(int $id): array{id: int, name: string, email: string, created_at: string} {
+        return ['id' => $id, 'name' => 'Alice', 'email' => 'a@b.com', 'created_at' => '2024-01-01'];
+    }
+
+    // Valid: accepts less specific type (contravariant)
+    function save(array{id: int} $user): void {
+        // Only requires id
     }
 }
 ```
@@ -899,8 +957,13 @@ class IntProvider extends NumberProvider {
 - [x] **Closed shapes**: `array{id: int}!` (no extra keys allowed)
 - [x] **Compile-time validation**: Shape/class cross-inheritance prevention
 - [x] **Performance optimizations**: String interning, cached key lookups for closed shapes
+- [x] **Variance checking for class methods**: LSP enforcement for array shape return/param types
+- [x] **Interface/trait support**: Full support for array shapes in interfaces and traits
+- [x] **Callable/Closure types in shapes**: `array{callback: callable}`, `array{handler: Closure}`
+- [x] **Spread operator support**: Type validation for `[...$typedArray]`
+- [x] **Configurable recursion limit**: `zend.shape_max_recursion_depth` INI directive
 
-All 35 array shape tests pass.
+All 47 array shape tests pass.
 
 ## Performance Optimizations
 
@@ -1199,7 +1262,7 @@ This proposal is fully backward compatible:
 Potential future enhancements (not part of this RFC):
 
 1. **Readonly shapes**: Immutable array structures
-2. **Shape variance in inheritance**: Covariant/contravariant field types
+2. **Generic shapes**: `shape Result<T> = array{success: bool, data: T}`
 
 ## Source Code
 
@@ -1223,6 +1286,7 @@ Potential future enhancements (not part of this RFC):
 - **v2.3 (2026-01-03):** Added performance optimizations: element/key type caching, SIMD validation, class entry caching, object array optimizations
 - **v2.4 (2026-01-04):** Added shape inheritance (`extends`), `::shape` syntax, compile-time validation for shape/class cross-inheritance
 - **v2.5 (2026-01-06):** Added shape autoloading, type covariance validation for inheritance, cached expected keys for closed shapes, string interning for shape keys
+- **v2.6 (2026-01-06):** Added variance checking for class method overrides (LSP enforcement), interface/trait support, callable/Closure types in shapes, spread operator validation, configurable recursion limit INI directive (47 tests)
 
 ## References
 

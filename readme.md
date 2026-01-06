@@ -1,7 +1,7 @@
 # PHP RFC: Typed Arrays & Array Shapes
 
-* Version: 2.4
-* Date: 2026-01-04
+* Version: 2.5
+* Date: 2026-01-06
 * Author: [Signalforger] <signalforger@signalforge.eu>
 * Status: Implemented (Proof of Concept)
 * Target Version: PHP 8.5
@@ -48,6 +48,8 @@
   - [SIMD Validation (AVX2)](#simd-validation-avx2)
   - [Recursion Depth Limit](#recursion-depth-limit)
   - [Cache Invalidation](#cache-invalidation)
+  - [String Interning for Shape Keys](#string-interning-for-shape-keys)
+  - [Cached Expected Keys for Closed Shapes](#cached-expected-keys-for-closed-shapes)
 - [Why Native Types Instead of Static Analysis?](#why-native-types-instead-of-static-analysis)
 - [Why Not Generics?](#why-not-generics)
 - [Backward Compatibility](#backward-compatibility)
@@ -514,6 +516,25 @@ function getAdmin(int $id): AdminUser {
 
 **Compile-time flattening**: Shape inheritance is resolved at compile time. The child shape contains all fields from the parent plus its own fields, flattened into a single shape definition. This means no runtime overhead for inheritance.
 
+**Type covariance rules**: When overriding parent fields, child shapes must follow these rules:
+- Child shapes can **narrow** parent types (e.g., `string|int` → `string`)
+- Child shapes **cannot widen** types (e.g., `string` → `int` is rejected)
+- Child shapes can make optional properties required
+- Child shapes **cannot** make required properties optional
+
+```php
+shape Base = array{value: string|int, status?: string};
+
+// Valid: narrows string|int to string, makes optional required
+shape Valid extends Base = array{value: string, status: string};
+
+// Invalid: widens string|int to bool (compile error)
+shape Invalid extends Base = array{value: bool};
+
+// Invalid: makes required property optional (compile error)
+shape AlsoInvalid extends Base = array{value?: string};
+```
+
 **Restrictions**: Shapes and classes are separate concepts and cannot be mixed:
 
 ```php
@@ -869,6 +890,7 @@ class IntProvider extends NumberProvider {
 - [x] Nested structures: `array<array<int>>`, `array{user: array{id: int}}`
 - [x] Shape type aliases: `shape Name = array{...}`
 - [x] **Shape inheritance**: `shape Child extends Parent = array{...}`
+- [x] **Type covariance validation**: Compile-time checks for shape property overrides
 - [x] **::shape syntax**: `UserRecord::shape` returns fully qualified shape name
 - [x] Shape autoloading via `spl_autoload_register()`
 - [x] Reflection API support (`ReflectionArrayType`, `ReflectionArrayShapeType`)
@@ -876,8 +898,9 @@ class IntProvider extends NumberProvider {
 - [x] **Property types**: `public array<int> $ids;`, `public array{id: int} $user;`
 - [x] **Closed shapes**: `array{id: int}!` (no extra keys allowed)
 - [x] **Compile-time validation**: Shape/class cross-inheritance prevention
+- [x] **Performance optimizations**: String interning, cached key lookups for closed shapes
 
-All 33 array shape tests pass (30 pass + 3 expected failures for autoloading feature).
+All 35 array shape tests pass.
 
 ## Performance Optimizations
 
@@ -1041,6 +1064,42 @@ All type caches are automatically invalidated when arrays are mutated. The inval
 
 **Implementation**: Uses `HT_INVALIDATE_ELEM_TYPE()` and `HT_INVALIDATE_KEY_TYPE()` macros after mutation operations.
 
+### String Interning for Shape Keys
+
+Shape element keys use PHP's string interning mechanism to reduce memory usage and enable fast pointer comparison:
+
+```c
+// During shape persistence, keys are interned when possible
+zend_string *interned = zend_string_init_existing_interned(key, len, 1);
+if (interned) {
+    shape->elements[i].key = interned;  // Reuse existing interned string
+}
+```
+
+**Benefits**:
+- Common keys like `"id"`, `"name"`, `"email"` share memory across all shapes
+- String comparison becomes pointer comparison for interned strings
+- Reduced memory footprint for applications with many similar shapes
+
+### Cached Expected Keys for Closed Shapes
+
+Closed shapes (`array{...}!`) cache their expected keys in a hash table at definition time:
+
+```c
+typedef struct _zend_array_shape {
+    uint32_t num_elements;
+    uint32_t num_required;
+    bool is_closed;
+    HashTable *expected_keys;  // Pre-built for O(1) lookup
+    zend_array_shape_element elements[];
+} zend_array_shape;
+```
+
+**Without cache**: Each validation builds a temporary hash table O(n) + checks O(m)
+**With cache**: Direct hash lookup O(m) only
+
+This significantly improves validation performance for closed shapes with many elements.
+
 ### Performance Summary
 
 | Scenario | Optimization | Benefit |
@@ -1051,6 +1110,8 @@ All type caches are automatically invalidated when arrays are mutated. The inval
 | Array of same concrete type | Monomorphic detection | 1 instanceof vs n |
 | Large numeric arrays (16+) | SIMD/AVX2 | ~8x throughput |
 | Deep nesting | Recursion limit | Prevents stack overflow |
+| Closed shape validation | Cached expected keys | O(m) vs O(n+m) |
+| Shape key comparison | String interning | Pointer comparison |
 
 For detailed benchmark results, see [benchmarks.md](benchmarks.md).
 
@@ -1161,6 +1222,7 @@ Potential future enhancements (not part of this RFC):
 - **v2.2 (2026-01-03):** Added closed shapes `array{...}!` for strict key validation
 - **v2.3 (2026-01-03):** Added performance optimizations: element/key type caching, SIMD validation, class entry caching, object array optimizations
 - **v2.4 (2026-01-04):** Added shape inheritance (`extends`), `::shape` syntax, compile-time validation for shape/class cross-inheritance
+- **v2.5 (2026-01-06):** Added shape autoloading, type covariance validation for inheritance, cached expected keys for closed shapes, string interning for shape keys
 
 ## References
 

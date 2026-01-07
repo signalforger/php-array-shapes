@@ -94,6 +94,99 @@ function getAllUsers(): array<array{id: int, name: string}> {
 }
 ```
 
+## Shape Aliases and Autoloading
+
+Define reusable shapes with the `shape` keyword:
+
+```php
+// shapes/UserRecord.php
+namespace App\Shapes;
+
+shape UserRecord = array{
+    id: int,
+    name: string,
+    email: string,
+    created_at: string
+};
+```
+
+```php
+// shapes/ApiResponse.php
+namespace App\Shapes;
+
+shape ApiResponse = array{
+    success: bool,
+    data: mixed,
+    error?: string
+};
+```
+
+Shapes can be autoloaded like classes:
+
+```php
+spl_autoload_register(function ($name) {
+    // Shapes autoload the same way as classes
+    $file = __DIR__ . '/shapes/' . str_replace('\\', '/', $name) . '.php';
+    if (file_exists($file)) {
+        require_once $file;
+    }
+});
+```
+
+Use shapes by name in type declarations:
+
+```php
+use App\Shapes\UserRecord;
+use App\Shapes\ApiResponse;
+
+function getUser(int $id): UserRecord {
+    return $this->db->fetch('SELECT * FROM users WHERE id = ?', [$id]);
+}
+
+function fetchApi(string $url): ApiResponse {
+    return json_decode(file_get_contents($url), true);
+}
+
+// Arrays of shapes
+function getAllUsers(): array<UserRecord> {
+    return $this->db->fetchAll('SELECT * FROM users');
+}
+```
+
+## The ::shape Syntax
+
+Like classes have `::class`, shapes have `::shape` to get the fully qualified name:
+
+```php
+namespace App\Shapes;
+
+shape UserRecord = array{id: int, name: string};
+shape OrderItem = array{product_id: int, quantity: int, price: float};
+```
+
+```php
+use App\Shapes\UserRecord;
+use App\Shapes\OrderItem;
+
+echo UserRecord::shape;           // "App\Shapes\UserRecord"
+echo OrderItem::shape;            // "App\Shapes\OrderItem"
+
+// Useful for logging, debugging, factory patterns
+function logShapeValidation(string $shapeName, array $data): void {
+    error_log("Validating against shape: $shapeName");
+}
+
+logShapeValidation(UserRecord::shape, $userData);
+
+// Check if a shape exists
+if (shape_exists(UserRecord::shape)) {
+    // shape is defined
+}
+
+// Works with fully qualified names
+echo \App\Shapes\UserRecord::shape;  // "App\Shapes\UserRecord"
+```
+
 ## Motivation
 
 PHP functions that return arrays provide no information about what's in those arrays. This is problematic when working with data from external sources like `json_decode()`, PDO queries, or webhook payloads, where the structure is known but not enforced by the type system.

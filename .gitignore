@@ -30,3 +30,4 @@ CONTEXT.md
 # Benchmark data (downloaded from API)
 showcase/src/benchmark_data.json
 showcase/benchmark_data.json
+prompts/

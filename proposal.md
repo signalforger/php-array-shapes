@@ -2,7 +2,7 @@
 
 * Version: 1.0
 * Date: 2026-01-06
-* Author: Nikola Breznjak
+* Author: Signalforger
 * Status: Draft
 * Target Version: PHP 8.5
 

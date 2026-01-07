@@ -18,14 +18,6 @@ function getIds(): array<int> {
 function getUser(): array{id: int, name: string, email: string} {
     return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
 }
-
-// Combined - array of shapes
-function getUsers(): array<array{id: int, name: string}> {
-    return [
-        ['id' => 1, 'name' => 'Alice'],
-        ['id' => 2, 'name' => 'Bob']
-    ];
-}
 ```
 
 Type mismatches produce clear errors:
@@ -35,11 +27,84 @@ TypeError: getIds(): Return value must be of type array<int>,
            array element at index 1 is string
 ```
 
+## More Examples
+
+Typed arrays work on function parameters, return types, and class properties:
+
+```php
+// Function parameters
+function processUsers(array<User> $users): void {
+    foreach ($users as $user) {
+        // $user is guaranteed to be a User object
+    }
+}
+
+// Class properties
+class UserRepository {
+    private array<User> $users = [];
+    private array<string, array<int>> $groupedIds = [];
+
+    public function add(User $user): void {
+        $this->users[] = $user;
+    }
+}
+
+// Maps with key and value types
+function getScoresByName(): array<string, int> {
+    return ['alice' => 95, 'bob' => 87];
+}
+
+// Nested typed arrays
+function getMatrix(): array<array<float>> {
+    return [
+        [1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0]
+    ];
+}
+
+// Objects in arrays
+function getActiveUsers(): array<User> {
+    return $this->repository->findByStatus('active');
+}
+
+// Union types in arrays
+function getIdentifiers(): array<int|string> {
+    return [1, 'abc-123', 2, 'def-456'];
+}
+```
+
+Array shapes also work everywhere types are accepted:
+
+```php
+// As function parameters
+function saveUser(array{id: int, name: string, email: string} $user): void {
+    $this->db->insert('users', $user);
+}
+
+// As class properties
+class Config {
+    public array{host: string, port: int, ssl?: bool} $database;
+    public array{level: string, path: string} $logging;
+}
+
+// Combined - array of shapes
+function getAllUsers(): array<array{id: int, name: string}> {
+    return $this->db->fetchAll('SELECT id, name FROM users');
+}
+```
+
 ## Motivation
 
 PHP functions that return arrays provide no information about what's in those arrays. This is problematic when working with data from external sources like `json_decode()`, PDO queries, or webhook payloads, where the structure is known but not enforced by the type system.
 
 Static analysis tools (PHPStan, Psalm) help with this through docblocks, but they cannot validate data at runtime. This implementation provides native syntax with runtime enforcement.
+
+## Not Generics
+
+This is not a generics implementation. Generics allow you to parameterize classes and functions with type variables (`class Box<T>`). This proposal is narrower: it lets you describe what's inside arrays using inline type annotations.
+
+The syntax `array<int>` might look like generics, but it's specifically array type declarations with runtime validation. You cannot create a `Collection<T>` class or write generic functions. The scope is intentionally limited to arrays, which covers the majority of cases where PHP developers need better type information.
 
 ## Features
 

@@ -1,29 +1,25 @@
 # Typed Arrays & Array Shapes for PHP
 
-Ever written `function getUsers(): array` and wondered what's actually in that array? Yeah, us too.
+A proof-of-concept implementation that adds typed arrays (`array<int>`) and array shapes (`array{id: int, name: string}`) to PHP's type system with full runtime validation.
 
-This is a working proof-of-concept that adds **typed arrays** and **array shapes** to PHP. No more guessing. No more runtime surprises. Just tell PHP what's in your arrays and let it validate for you.
-
-## Try It
+## Usage
 
 ```bash
 docker run -it --rm ghcr.io/signalforger/php-array-shapes:latest php -a
 ```
 
-Then:
-
 ```php
-// Typed arrays - for collections
+// Typed arrays for homogeneous collections
 function getIds(): array<int> {
     return [1, 2, 3];
 }
 
-// Array shapes - for structured data
+// Array shapes for structured data
 function getUser(): array{id: int, name: string, email: string} {
     return ['id' => 1, 'name' => 'Alice', 'email' => 'alice@example.com'];
 }
 
-// They compose nicely
+// Combined - array of shapes
 function getUsers(): array<array{id: int, name: string}> {
     return [
         ['id' => 1, 'name' => 'Alice'],
@@ -32,83 +28,70 @@ function getUsers(): array<array{id: int, name: string}> {
 }
 ```
 
-If you return the wrong type, you get a clear error:
+Type mismatches produce clear errors:
 
 ```
 TypeError: getIds(): Return value must be of type array<int>,
            array element at index 1 is string
 ```
 
-## Why?
+## Motivation
 
-Because `json_decode()` returns arrays. Because PDO returns arrays. Because config files are arrays. Because webhooks are arrays.
+PHP functions that return arrays provide no information about what's in those arrays. This is problematic when working with data from external sources like `json_decode()`, PDO queries, or webhook payloads, where the structure is known but not enforced by the type system.
 
-Every PHP app is full of arrays, and right now the type system can't help you with any of them.
+Static analysis tools (PHPStan, Psalm) help with this through docblocks, but they cannot validate data at runtime. This implementation provides native syntax with runtime enforcement.
 
-Static analysis tools help, but they can't validate data that comes from outside your code - API responses, database queries, user input. That's where runtime validation matters.
+## Features
 
-## What's Implemented
+- `array<T>` and `array<K, V>` for typed collections
+- `array{key: type}` for structured shapes
+- Optional keys (`key?: type`) and nullable values (`?type`)
+- Closed shapes (`array{...}!`) that reject extra keys
+- Type aliases (`shape User = array{...}`)
+- Shape inheritance (`shape Admin extends User = array{...}`)
+- Property types, variance checking, reflection API
 
-Everything you'd expect:
-
-- `array<int>`, `array<User>`, `array<string, int>` - typed collections
-- `array{id: int, name: string}` - structured shapes
-- `array{email?: string}` - optional keys
-- `array{id: int}!` - closed shapes (no extra keys allowed)
-- `shape UserRecord = array{...}` - reusable type aliases
-- `shape Admin extends User = array{...}` - shape inheritance
-- Property types, interface/trait support, variance checking
-- Full reflection API
-
-47 tests. All passing.
+All 47 tests pass.
 
 ## Documentation
 
-- **[proposal.md](proposal.md)** - The RFC proposal (focused on typed arrays)
-- **[examples.md](examples.md)** - Usage examples and patterns
-- **[implementation.md](implementation.md)** - How it works under the hood (C implementation details)
+- [proposal.md](proposal.md) - RFC proposal
+- [examples.md](examples.md) - Usage examples and patterns
+- [implementation.md](implementation.md) - C implementation details
 
-## Quick Reference
+## Syntax Reference
 
 ```php
 // Typed arrays
 array<int>                    // list of integers
 array<User>                   // list of objects
-array<string, float>          // string keys, float values
+array<string, float>          // map with string keys, float values
 
 // Array shapes
 array{id: int, name: string}  // required keys
 array{id: int, bio?: string}  // optional key
 array{data: ?string}          // nullable value
-array{id: int}!               // closed (no extra keys)
+array{id: int}!               // closed shape
 
 // Type aliases
 shape User = array{id: int, name: string};
 shape Admin extends User = array{role: string};
 ```
 
-## The Idea
+## Design
 
-**Arrays are data. Objects are behavior.**
+Array shapes are intended for validating data at application boundaries - where arrays come in from databases, APIs, or configuration files. They complement DTOs rather than replacing them: use shapes to validate incoming data structures, then convert to objects where you need behavior and business logic.
 
-Use shapes at the boundaries of your app (API responses, database rows, config files) where data enters as arrays. Convert to proper objects inside your domain where you need methods and business logic.
+## Source Code
 
-Shapes don't replace DTOs - they complement them. Validate the structure when data comes in, then work with rich objects internally.
+- Docker image: `ghcr.io/signalforger/php-array-shapes:latest`
+- PHP fork: [github.com/signalforger/php-src](https://github.com/signalforger/php-src/tree/feature/array-shapes) (feature/array-shapes branch)
+- Patch file: `array-shapes.patch`
 
-## Source
-
-- **Docker:** `ghcr.io/signalforger/php-array-shapes:latest`
-- **Code:** [github.com/signalforger/php-src](https://github.com/signalforger/php-src/tree/feature/array-shapes) (feature/array-shapes branch)
-- **Patch:** `array-shapes.patch` in this repo
-
-## Build Locally
+## Building
 
 ```bash
 git clone --recursive https://github.com/signalforger/php-array-shapes.git
 cd php-array-shapes
 docker build --target cli -t php-array-shapes:latest .
 ```
-
----
-
-Built by [Signalforger](https://github.com/signalforger). Feedback welcome.
